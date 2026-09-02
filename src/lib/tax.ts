@@ -121,6 +121,30 @@ export function netTaxPools(stockPoolEur: number, fundPoolEur: number): number {
   return stockPoolEur + fundPoolEur
 }
 
+export interface RemainingLossPots {
+  remainingEquityLossPotEur: number
+  remainingGeneralLossPotEur: number
+}
+
+/**
+ * What each loss pot balance would look like *after* netting these combined
+ * (carry-in + new sale) pools — mirrors netTaxPools' branches exactly, since
+ * a naive per-pool floor-at-zero would get the middle branch wrong: when a
+ * fund/general loss offsets a stock gain, it's the *general* pot that gets
+ * spent down, not the equity one, even though the gain was on the stock side.
+ */
+export function remainingLossPotsAfter(stockPoolEur: number, fundPoolEur: number): RemainingLossPots {
+  if (stockPoolEur < 0) {
+    // Stock loss is stranded - carries forward untouched. Fund pool taxed/carried independently.
+    return { remainingEquityLossPotEur: -stockPoolEur, remainingGeneralLossPotEur: Math.max(-fundPoolEur, 0) }
+  }
+  if (fundPoolEur < 0) {
+    // Fund loss gets consumed (up to the stock gain) to offset the stock gain - no equity loss existed here.
+    return { remainingEquityLossPotEur: 0, remainingGeneralLossPotEur: Math.max(-(stockPoolEur + fundPoolEur), 0) }
+  }
+  return { remainingEquityLossPotEur: 0, remainingGeneralLossPotEur: 0 }
+}
+
 export function remainingAllowance(institution: Institution): number {
   return Math.max(institution.submittedEur - institution.usedEur, 0)
 }
@@ -147,34 +171,61 @@ export function effectiveTaxRate(settings: Settings): number {
   return 0.25 * (1 + soli + church)
 }
 
+export interface LossPotCarryIn {
+  lossPotEquitiesEur?: number
+  lossPotGeneralEur?: number
+}
+
 export interface InstitutionTaxSummary {
   institutionId: string
-  stockPoolEur: number
-  fundPoolEur: number
+  /** This sale's own contribution to each pool, before any carry-in. */
+  newStockPoolEur: number
+  newFundPoolEur: number
+  /** Existing banked loss balances carried in from before this sale (entered manually from the broker's own loss-pot screen). */
+  carryInLossPotEquitiesEur: number
+  carryInLossPotGeneralEur: number
+  /** Combined pool (carry-in + new) after the asymmetric §20 EStG netting. */
   netTaxableBeforeAllowanceEur: number
   allowanceUsedEur: number
   taxableAfterAllowanceEur: number
   taxEur: number
+  /** What each loss pot should look like after this plan - a concrete, checkable prediction against the broker's next statement. */
+  projectedRemainingLossPots: RemainingLossPots
 }
 
+/**
+ * A new stock/fund gain is netted against any pre-existing banked loss pot
+ * before tax is calculated, exactly as a broker's real-time withholding
+ * does — otherwise every recommendation would evaluate each sale in
+ * isolation, ignoring losses already realized earlier in the year.
+ */
 export function settleInstitutionTax(
   institutionId: string,
-  stockPoolEur: number,
-  fundPoolEur: number,
+  newStockPoolEur: number,
+  newFundPoolEur: number,
   remainingAllowanceEur: number,
   settings: Settings,
+  carryIn: LossPotCarryIn = {},
 ): InstitutionTaxSummary {
-  const netTaxableBeforeAllowanceEur = netTaxPools(stockPoolEur, fundPoolEur)
+  const carryInLossPotEquitiesEur = Math.max(carryIn.lossPotEquitiesEur ?? 0, 0)
+  const carryInLossPotGeneralEur = Math.max(carryIn.lossPotGeneralEur ?? 0, 0)
+  const combinedStockPoolEur = newStockPoolEur - carryInLossPotEquitiesEur
+  const combinedFundPoolEur = newFundPoolEur - carryInLossPotGeneralEur
+
+  const netTaxableBeforeAllowanceEur = netTaxPools(combinedStockPoolEur, combinedFundPoolEur)
   const { taxableAfterAllowanceEur, allowanceUsedEur } = applyAllowance(netTaxableBeforeAllowanceEur, remainingAllowanceEur)
   const taxEur = taxableAfterAllowanceEur * effectiveTaxRate(settings)
   return {
     institutionId,
-    stockPoolEur,
-    fundPoolEur,
+    newStockPoolEur,
+    newFundPoolEur,
+    carryInLossPotEquitiesEur,
+    carryInLossPotGeneralEur,
     netTaxableBeforeAllowanceEur,
     allowanceUsedEur,
     taxableAfterAllowanceEur,
     taxEur,
+    projectedRemainingLossPots: remainingLossPotsAfter(combinedStockPoolEur, combinedFundPoolEur),
   }
 }
 

@@ -129,7 +129,7 @@ function standaloneEffectiveRate(
   const remaining = institution ? remainingAllowance(institution) : 0
   const stockPool = sale.pool === 'STOCK' ? sale.taxableGainLossEur : 0
   const fundPool = sale.pool === 'FUND' ? sale.taxableGainLossEur : 0
-  const summary = settleInstitutionTax(holding.institutionId, stockPool, fundPool, remaining, settings)
+  const summary = settleInstitutionTax(holding.institutionId, stockPool, fundPool, remaining, settings, institution)
   return summary.taxEur / sale.proceedsEur
 }
 
@@ -229,7 +229,7 @@ function buildPlan(
   const institutionBreakdown: InstitutionBreakdown[] = Object.entries(poolsByInstitution).map(([institutionId, pools]) => {
     const institution = institutions.find((i) => i.id === institutionId)
     const remaining = institution ? remainingAllowance(institution) : 0
-    const summary = settleInstitutionTax(institutionId, pools.stock, pools.fund, remaining, settings)
+    const summary = settleInstitutionTax(institutionId, pools.stock, pools.fund, remaining, settings, institution)
     return { ...summary, institutionLabel: institutionLabel(institutions, institutionId) }
   })
 
@@ -395,8 +395,12 @@ function formatPlanText(plan: SalePlan | null, cashUsedEur: number): string {
     lines.push('')
     lines.push('Per-institution tax breakdown:')
     for (const b of plan.institutionBreakdown) {
+      const carryInNote =
+        b.carryInLossPotEquitiesEur > 0 || b.carryInLossPotGeneralEur > 0
+          ? ` (carry-in loss pots: equities ${formatEur(b.carryInLossPotEquitiesEur)}, general ${formatEur(b.carryInLossPotGeneralEur)})`
+          : ''
       lines.push(
-        `  ${b.institutionLabel}: stock pool ${formatEur(b.stockPoolEur)}, fund pool ${formatEur(b.fundPoolEur)}, allowance used ${formatEur(b.allowanceUsedEur)}, tax ${formatEur(b.taxEur)}`,
+        `  ${b.institutionLabel}: stock pool ${formatEur(b.newStockPoolEur)}, fund pool ${formatEur(b.newFundPoolEur)}${carryInNote}, allowance used ${formatEur(b.allowanceUsedEur)}, tax ${formatEur(b.taxEur)}`,
       )
     }
   }

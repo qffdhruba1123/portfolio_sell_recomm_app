@@ -141,6 +141,83 @@ describe('recommend — Bestandsschutz (pre-2009 lots)', () => {
   })
 })
 
+describe('recommend — loss pot carry-in', () => {
+  it('reduces tax on a new stock gain by an institution\'s existing banked equity loss pot', () => {
+    const withLossPot: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 0, usedEur: 0, lossPotEquitiesEur: 1000 }]
+    const h = holding({
+      id: 'h1',
+      institutionId: 'inst1',
+      lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }], // gain
+    })
+    const withCarryIn = recommend({
+      amountNeededEur: 500,
+      holdings: [h],
+      cashBalances: [],
+      institutions: withLossPot,
+      settings: defaultSettings(),
+      prices: { h1: 50 }, // gross gain 400
+    })
+    const withoutLossPot: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 0, usedEur: 0 }]
+    const withoutCarryIn = recommend({
+      amountNeededEur: 500,
+      holdings: [h],
+      cashBalances: [],
+      institutions: withoutLossPot,
+      settings: defaultSettings(),
+      prices: { h1: 50 },
+    })
+    expect(withCarryIn.taxOptimizedPlan?.totalTaxEur).toBe(0) // 400 gain fully absorbed by the 1000 loss pot
+    expect(withoutCarryIn.taxOptimizedPlan?.totalTaxEur).toBeGreaterThan(0)
+  })
+
+  it('ranks a gain-making holding as favorably as a loss when its institution has enough banked loss to absorb it', () => {
+    const withLossPot: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 0, usedEur: 0, lossPotEquitiesEur: 1000 }]
+    const shielded = holding({
+      id: 'shielded',
+      institutionId: 'inst1',
+      lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }], // +400 gain, fully absorbed by loss pot
+    })
+    const unshielded = holding({
+      id: 'unshielded',
+      institutionId: 'inst1',
+      lots: [{ id: 'l2', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 30 }], // +200 gain, no loss pot left after "shielded" consumes it standalone... but ranking is per-holding standalone, so this alone would also see the same 1000 loss pot
+    })
+    const result = recommend({
+      amountNeededEur: 100, // small enough that only one holding is needed
+      holdings: [shielded, unshielded],
+      cashBalances: [],
+      institutions: withLossPot,
+      settings: defaultSettings(),
+      prices: { shielded: 50, unshielded: 50 },
+    })
+    // Both gains are individually fully absorbed by the standalone 1000 loss pot estimate, so both rank at the
+    // cheapest tier (tied) - the point is neither is penalized as if the loss pot didn't exist.
+    const pickedId = result.taxOptimizedPlan?.lineItems[0].holdingId
+    expect(['shielded', 'unshielded']).toContain(pickedId)
+    expect(result.taxOptimizedPlan?.totalTaxEur).toBe(0)
+  })
+
+  it('shows the projected remaining loss pot after the plan in the institution breakdown', () => {
+    const withLossPot: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 0, usedEur: 0, lossPotEquitiesEur: 1000 }]
+    const h = holding({
+      id: 'h1',
+      institutionId: 'inst1',
+      lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }], // +400 gain
+    })
+    const result = recommend({
+      amountNeededEur: 500,
+      holdings: [h],
+      cashBalances: [],
+      institutions: withLossPot,
+      settings: defaultSettings(),
+      prices: { h1: 50 },
+    })
+    const breakdown = result.taxOptimizedPlan?.institutionBreakdown[0]
+    expect(breakdown?.carryInLossPotEquitiesEur).toBe(1000)
+    expect(breakdown?.projectedRemainingLossPots.remainingEquityLossPotEur).toBe(600) // 1000 - 400 gain consumed
+  })
+})
+
 describe('recommend — risk-reduction lens', () => {
   it('ranks stocks above funds and by concentration descending', () => {
     const smallStock = holding({

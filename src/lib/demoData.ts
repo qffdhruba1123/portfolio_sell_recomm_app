@@ -9,16 +9,31 @@ import { defaultSettings } from '../types'
  * illustrate a gain and a loss scenario, not real purchase history.
  *
  * Deliberately touches every field the app has: three institutions with
- * different broker fees, a Bestandsschutz (pre-2009) lot, a Teilfreistellung
- * override, and cash balances spanning all three interest payout frequencies
- * — so loading demo data shows what each part of the app actually does
- * instead of just a plausible-looking portfolio.
+ * different broker fees and loss-pot carry-in balances, a Bestandsschutz
+ * (pre-2009) lot, a Teilfreistellung override, and cash balances spanning
+ * all three interest payout frequencies — so loading demo data shows what
+ * each part of the app actually does instead of just a plausible-looking
+ * portfolio.
  */
 /** `existingCorsProxyPrefix`, if given, is preserved rather than reset to default — a user's already-configured proxy shouldn't be silently clobbered by loading demo data. */
 export function buildDemoState(existingCorsProxyPrefix?: string): AppState {
   const institutions = [
-    { id: 'demo-inst-main', label: 'Hauptbroker', submittedEur: 500, usedEur: 210, brokerFeeEur: 1.0 },
-    { id: 'demo-inst-second', label: 'Zweitdepot', submittedEur: 300, usedEur: 0, brokerFeeEur: 0 },
+    {
+      id: 'demo-inst-main',
+      label: 'Hauptbroker',
+      submittedEur: 500,
+      usedEur: 210,
+      brokerFeeEur: 1.0,
+      lossPotEquitiesEur: 300, // banked from an earlier stock sale this year - nets against Apple's gain below
+    },
+    {
+      id: 'demo-inst-second',
+      label: 'Zweitdepot',
+      submittedEur: 300,
+      usedEur: 0,
+      brokerFeeEur: 0,
+      lossPotGeneralEur: 500, // banked from an earlier fund sale this year - nets against VWCE's gain below
+    },
     { id: 'demo-inst-third', label: 'Neobroker', submittedEur: 200, usedEur: 50, brokerFeeEur: 0.99 },
   ]
 

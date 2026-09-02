@@ -142,6 +142,20 @@ Each institution also has its own **sell fee** (a flat EUR cost per sell
 order) instead of one app-wide number, since brokers charge very differently
 — some neobrokers charge under 1 EUR/trade, others charge more.
 
+## Loss pots carry into a new recommendation
+
+Every recommendation used to net gains and losses only among the holdings in
+that one plan, starting from zero — ignoring any loss already realized
+earlier in the year at that institution. The Allowance tab now has a **loss
+pots** section where you enter each institution's current banked balances
+exactly as its own screen shows them (e.g. Scalable Capital labels these
+"Loss pot (equities)" and "Loss pot (general)"). A new recommendation nets
+against these first, same as the broker's own real-time withholding does —
+so a stock gain gets reduced or zeroed out by an existing equity loss pot
+before any tax shows up. The per-institution breakdown in the Recommend view
+shows the carry-in amount used and a **projected remaining loss pot** after
+the plan, which you can check against your broker's next statement.
+
 The suggested split is never a black box either — clicking an institution's
 row expands a breakdown of exactly which holding or cash balance contributed
 how much to its estimate.

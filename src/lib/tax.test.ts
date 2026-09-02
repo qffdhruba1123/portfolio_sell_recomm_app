@@ -11,6 +11,7 @@ import {
   isBestandsschutzLot,
   netTaxPools,
   remainingAllowance,
+  remainingLossPotsAfter,
   settleInstitutionTax,
   suggestAllowanceSplit,
   suggestInstitutionToTrim,
@@ -251,6 +252,80 @@ describe('settleInstitutionTax end to end', () => {
     expect(summary.allowanceUsedEur).toBe(500)
     expect(summary.taxableAfterAllowanceEur).toBe(300)
     expect(summary.taxEur).toBeCloseTo(300 * 0.26375)
+    expect(summary.carryInLossPotEquitiesEur).toBe(0)
+    expect(summary.carryInLossPotGeneralEur).toBe(0)
+  })
+
+  it('nets a new stock gain against a carried-in equity loss pot before taxing it', () => {
+    const settings: Settings = { ...defaultSettings(), churchTaxEnabled: false }
+    // New stock gain 1000, no fund activity, but 400 already banked in the equity loss pot.
+    const summary = settleInstitutionTax('inst1', 1000, 0, 1000, settings, { lossPotEquitiesEur: 400 })
+    expect(summary.newStockPoolEur).toBe(1000)
+    expect(summary.carryInLossPotEquitiesEur).toBe(400)
+    expect(summary.netTaxableBeforeAllowanceEur).toBe(600) // 1000 - 400 carry-in
+  })
+
+  it('a carried-in loss pot big enough to fully absorb the new gain results in zero tax', () => {
+    const settings: Settings = { ...defaultSettings(), churchTaxEnabled: false }
+    const summary = settleInstitutionTax('inst1', 300, 0, 1000, settings, { lossPotEquitiesEur: 500 })
+    expect(summary.netTaxableBeforeAllowanceEur).toBe(0)
+    expect(summary.taxEur).toBe(0)
+    expect(summary.projectedRemainingLossPots.remainingEquityLossPotEur).toBe(200) // 500 - 300 left over
+  })
+
+  it('with no carry-in given, behaves exactly as before (zero carry-in)', () => {
+    const settings: Settings = { ...defaultSettings(), churchTaxEnabled: false }
+    const withCarryIn = settleInstitutionTax('inst1', 1000, -200, 500, settings, { lossPotEquitiesEur: 0, lossPotGeneralEur: 0 })
+    const withoutCarryIn = settleInstitutionTax('inst1', 1000, -200, 500, settings)
+    expect(withCarryIn.taxEur).toBeCloseTo(withoutCarryIn.taxEur)
+    expect(withCarryIn.netTaxableBeforeAllowanceEur).toBe(withoutCarryIn.netTaxableBeforeAllowanceEur)
+  })
+
+  it('treats a missing carry-in object the same as an explicit zero (Institution without loss-pot fields set)', () => {
+    const settings: Settings = { ...defaultSettings(), churchTaxEnabled: false }
+    const institution: Institution = { id: 'inst1', label: 'Broker A', submittedEur: 1000, usedEur: 0 }
+    const summary = settleInstitutionTax('inst1', 1000, 0, 1000, settings, institution)
+    expect(summary.carryInLossPotEquitiesEur).toBe(0)
+    expect(summary.netTaxableBeforeAllowanceEur).toBe(1000)
+  })
+
+  it('treats a negative carry-in value as zero rather than adding to the pool', () => {
+    const settings: Settings = { ...defaultSettings(), churchTaxEnabled: false }
+    const summary = settleInstitutionTax('inst1', 1000, 0, 1000, settings, { lossPotEquitiesEur: -50 })
+    expect(summary.carryInLossPotEquitiesEur).toBe(0)
+    expect(summary.netTaxableBeforeAllowanceEur).toBe(1000)
+  })
+})
+
+describe('remainingLossPotsAfter', () => {
+  it('carries a stranded stock loss forward untouched, independent of the fund pool', () => {
+    const result = remainingLossPotsAfter(-500, 800)
+    expect(result.remainingEquityLossPotEur).toBe(500)
+    expect(result.remainingGeneralLossPotEur).toBe(0) // fund gain was taxed, nothing left to carry
+  })
+
+  it('carries both pools forward when both are negative', () => {
+    const result = remainingLossPotsAfter(-500, -300)
+    expect(result.remainingEquityLossPotEur).toBe(500)
+    expect(result.remainingGeneralLossPotEur).toBe(300)
+  })
+
+  it('fully consumes a smaller fund loss offsetting a stock gain, leaving no general pot', () => {
+    const result = remainingLossPotsAfter(1000, -300)
+    expect(result.remainingEquityLossPotEur).toBe(0)
+    expect(result.remainingGeneralLossPotEur).toBe(0) // fully absorbed into the stock gain
+  })
+
+  it('leaves the unused portion of a fund loss bigger than the stock gain as a remaining general pot', () => {
+    const result = remainingLossPotsAfter(300, -900)
+    expect(result.remainingEquityLossPotEur).toBe(0)
+    expect(result.remainingGeneralLossPotEur).toBe(600) // 900 - 300 consumed
+  })
+
+  it('leaves nothing when both pools are non-negative', () => {
+    const result = remainingLossPotsAfter(500, 300)
+    expect(result.remainingEquityLossPotEur).toBe(0)
+    expect(result.remainingGeneralLossPotEur).toBe(0)
   })
 })
 

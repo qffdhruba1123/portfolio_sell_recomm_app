@@ -309,6 +309,56 @@ export function AllowanceView() {
         </div>
       </Card>
 
+      <Card>
+        <h2 className="mb-1 font-semibold text-slate-900">Loss pots (Verlustverrechnungstöpfe)</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Enter each institution's current banked loss balances exactly as shown on its own loss-pot screen (e.g.
+          Scalable Capital labels these "Loss pot (equities)" and "Loss pot (general)"). A new recommendation nets
+          against these before taxing anything — so a plan reflects losses you've already realized this year at that
+          institution, instead of evaluating every recommendation as if the year started from zero.
+        </p>
+        {institutions.length === 0 ? (
+          <p className="text-xs text-slate-500">Add an institution above first.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-sm">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="py-1">Institution</th>
+                  <th className="py-1 text-right">Loss pot (equities)</th>
+                  <th className="py-1 text-right">Loss pot (general)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {institutions.map((i) => (
+                  <tr key={i.id} className="border-t border-slate-100">
+                    <td className="py-1">{i.label}</td>
+                    <td className="py-1 text-right">
+                      <NumberInput
+                        className="text-right"
+                        value={i.lossPotEquitiesEur ?? 0}
+                        onChange={(v) => updateInstitution(i.id, { lossPotEquitiesEur: v })}
+                        min={0}
+                        step="any"
+                      />
+                    </td>
+                    <td className="py-1 text-right">
+                      <NumberInput
+                        className="text-right"
+                        value={i.lossPotGeneralEur ?? 0}
+                        onChange={(v) => updateInstitution(i.id, { lossPotGeneralEur: v })}
+                        min={0}
+                        step="any"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
       <AllowanceSplitSuggestionCard />
 
       <Card>

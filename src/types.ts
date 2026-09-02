@@ -10,6 +10,10 @@ export interface Institution {
   usedEur: number
   /** Flat fee this institution charges per sell order, EUR - varies by broker (e.g. some neobrokers charge under 1 EUR/trade, others charge more). Optional/defaults to 0 so existing saved data doesn't need a migration. */
   brokerFeeEur?: number
+  /** Banked stock-loss balance at this broker, as shown on its own "loss pot" (Verlustverrechnungstopf Aktien) screen - carried into a new recommendation's netting instead of starting from zero. */
+  lossPotEquitiesEur?: number
+  /** Banked fund/other-income loss balance (Verlustverrechnungstopf Sonstige), same idea as lossPotEquitiesEur. */
+  lossPotGeneralEur?: number
 }
 
 export interface Lot {
