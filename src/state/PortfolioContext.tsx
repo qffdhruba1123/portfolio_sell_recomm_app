@@ -60,6 +60,20 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
 
   const isDemo = useMemo(() => state.holdings.some((h) => isDemoHoldingId(h.id)), [state.holdings])
 
+  // Demo prices are baked-in constants, not fetched. Populate them for any demo
+  // holding that doesn't have a price yet — covers the initial load of a session
+  // that already had demo data saved (e.g. after a page reload), not just the
+  // moment "Load demo data" is clicked.
+  useEffect(() => {
+    const missing = state.holdings.filter((h) => isDemoHoldingId(h.id) && !(h.id in prices))
+    if (missing.length === 0) return
+    setPrices((prev) => {
+      const next = { ...prev }
+      for (const h of missing) next[h.id] = { price: DEMO_PRICES_EUR[h.id], currency: 'EUR', stale: false, source: 'demo' }
+      return next
+    })
+  }, [state.holdings, prices])
+
   const refreshPrices = useCallback(async () => {
     setPricesLoading(true)
     const proxyPrefix = state.settings.corsProxyPrefix

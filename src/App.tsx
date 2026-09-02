@@ -1,15 +1,17 @@
 import { useState } from 'react'
-import { PortfolioProvider } from './state/PortfolioContext'
+import { PortfolioProvider, usePortfolio } from './state/PortfolioContext'
 import { Disclaimer } from './components/Disclaimer'
+import { GuideView } from './components/GuideView'
 import { Dashboard } from './components/Dashboard'
 import { RecommendView } from './components/RecommendView'
 import { HoldingsView } from './components/HoldingsView'
 import { AllowanceView } from './components/AllowanceView'
 import { SettingsView } from './components/SettingsView'
 
-type Tab = 'dashboard' | 'recommend' | 'holdings' | 'allowance' | 'settings'
+type Tab = 'guide' | 'dashboard' | 'recommend' | 'holdings' | 'allowance' | 'settings'
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'guide', label: 'Guide' },
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'recommend', label: 'Recommend' },
   { id: 'holdings', label: 'Holdings' },
@@ -18,7 +20,9 @@ const TABS: { id: Tab; label: string }[] = [
 ]
 
 function AppShell() {
-  const [tab, setTab] = useState<Tab>('dashboard')
+  const { state } = usePortfolio()
+  const isFirstVisit = state.holdings.length === 0 && state.cashBalances.length === 0 && state.institutions.length === 0
+  const [tab, setTab] = useState<Tab>(isFirstVisit ? 'guide' : 'dashboard')
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -40,6 +44,7 @@ function AppShell() {
         ))}
       </nav>
       <main className="mx-auto max-w-5xl p-4">
+        {tab === 'guide' && <GuideView onNavigate={(t) => setTab(t as Tab)} />}
         {tab === 'dashboard' && <Dashboard onNavigate={(t) => setTab(t as Tab)} />}
         {tab === 'recommend' && <RecommendView />}
         {tab === 'holdings' && <HoldingsView />}

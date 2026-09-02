@@ -40,10 +40,14 @@ export function Dashboard({ onNavigate }: { onNavigate: (tab: string) => void })
         <Card className="border-slate-300 bg-slate-50">
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm text-slate-700">
-              No holdings or cash entered yet. Load a demo portfolio to see how sell recommendations work, or head
-              to Holdings to enter your own.
+              No holdings or cash entered yet. New here? The Guide tab walks through setup in a few short steps.
             </p>
-            <Button onClick={loadDemoData}>Load demo data</Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => onNavigate('guide')}>
+                Read the guide
+              </Button>
+              <Button onClick={loadDemoData}>Load demo data</Button>
+            </div>
           </div>
         </Card>
       )}
