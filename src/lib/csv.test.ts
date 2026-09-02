@@ -95,7 +95,7 @@ describe('buildCsvImportPlan', () => {
     const plan = buildCsvImportPlan(rows, [], [])
     expect(plan.newHoldings).toHaveLength(1)
     expect(plan.newHoldings[0].lots).toHaveLength(2)
-    expect(plan.newInstitutions).toEqual([{ label: 'Broker A', submittedEur: 0, usedEur: 0 }])
+    expect(plan.newInstitutions).toEqual([{ label: 'Broker A', submittedEur: 0, usedEur: 0, brokerFeeEur: 0 }])
   })
 
   it('treats the same identifier at two different institutions as two separate holdings', () => {

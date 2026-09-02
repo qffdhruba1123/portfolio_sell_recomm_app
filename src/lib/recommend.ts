@@ -234,7 +234,11 @@ function buildPlan(
   })
 
   const totalTaxEur = institutionBreakdown.reduce((sum, b) => sum + b.taxEur, 0)
-  const totalFeesEur = chosen.length * settings.brokerFeeEur
+  // One fee per holding touched (never per FIFO lot), at that holding's own institution's rate - fees vary by broker.
+  const totalFeesEur = chosen.reduce((sum, { holding }) => {
+    const institution = institutions.find((i) => i.id === holding.institutionId)
+    return sum + (institution?.brokerFeeEur ?? 0)
+  }, 0)
   const grossProceedsFromSalesEur = lineItems.reduce((sum, li) => sum + li.grossProceedsEur, 0)
 
   return {

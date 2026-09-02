@@ -201,3 +201,38 @@ export function suggestInstitutionToTrim(institutions: Institution[]): Instituti
   if (institutions.length === 0) return null
   return [...institutions].sort((a, b) => remainingAllowance(b) - remainingAllowance(a))[0]
 }
+
+export interface AllowanceSplitSuggestion {
+  institutionId: string
+  estimatedIncomeEur: number
+  suggestedSubmittedEur: number
+}
+
+/**
+ * Suggests how to file the annual allowance across institutions, given each
+ * institution's estimated capital income (dividends + interest) from a prior
+ * period. Real-time withholding relief is only useful where income actually
+ * occurs, so this greedily fills the highest-income institution first, up to
+ * its own income or the remaining cap (whichever is smaller) — allocating
+ * more than an institution's own income to it would just waste headroom
+ * there instead of shielding income elsewhere. Any cap left over once every
+ * institution's income is fully covered goes unallocated rather than being
+ * spread arbitrarily.
+ */
+export function suggestAllowanceSplit(
+  institutions: Institution[],
+  estimatedIncomeByInstitutionEur: Record<string, number>,
+  filingStatus: keyof typeof SPARERPAUSCHBETRAG,
+): AllowanceSplitSuggestion[] {
+  const capEur = SPARERPAUSCHBETRAG[filingStatus]
+  const sorted = [...institutions].sort(
+    (a, b) => (estimatedIncomeByInstitutionEur[b.id] ?? 0) - (estimatedIncomeByInstitutionEur[a.id] ?? 0),
+  )
+  let remaining = capEur
+  return sorted.map((institution) => {
+    const estimatedIncomeEur = Math.max(estimatedIncomeByInstitutionEur[institution.id] ?? 0, 0)
+    const suggestedSubmittedEur = Math.round(Math.min(estimatedIncomeEur, Math.max(remaining, 0)))
+    remaining -= suggestedSubmittedEur
+    return { institutionId: institution.id, estimatedIncomeEur, suggestedSubmittedEur }
+  })
+}

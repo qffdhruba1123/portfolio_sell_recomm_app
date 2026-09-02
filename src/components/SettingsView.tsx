@@ -140,9 +140,6 @@ export function SettingsView() {
               step={1}
             />
           </Field>
-          <Field label="Broker fee per sell order (EUR)">
-            <NumberInput value={settings.brokerFeeEur} onChange={(v) => updateSettings({ brokerFeeEur: v })} step="any" />
-          </Field>
           <Field label="This year's Vorabpauschale (EUR, manual)">
             <NumberInput
               value={settings.vorabpauschaleEur}
@@ -154,7 +151,8 @@ export function SettingsView() {
         <p className="mt-2 text-xs text-slate-500">
           Vorabpauschale is entered manually and not included in the recommendation's tax math — the Bundesbank
           Basiszins it depends on changes yearly and isn't reliably fetchable. Known gap, shown here for your own
-          reference only.
+          reference only. Broker fees per sell order are set per institution on the Allowance tab, since they vary
+          by broker rather than being a single app-wide number.
         </p>
       </Card>
 

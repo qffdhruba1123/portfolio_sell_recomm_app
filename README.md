@@ -123,6 +123,25 @@ ones) rather than silently leaving them pointing at nothing.
   across two calendar years uses two separate years' Sparerpauschbetrag —
   context only, never applied automatically.
 
+## Suggesting how to split your Freistellungsauftrag
+
+The Allowance tab can estimate where your annual allowance is actually needed
+and suggest filing it there, instead of splitting it evenly or guessing:
+
+- Each holding's dividend income for last year is estimated from Yahoo
+  Finance's dividend history and your lot quantities (a proxy for expected
+  income, since future dividend dates can't be predicted).
+- Each cash balance's interest for the *rest of this year* is projected from
+  a rate (% per annum) and payout frequency you enter per balance — there's
+  no way to fetch a bank's rate automatically.
+- The suggestion fully covers whichever institution has the highest combined
+  estimate first, since real-time withholding relief only helps where the
+  income actually lands — not an even split, and not proportional either.
+
+Each institution also has its own **sell fee** (a flat EUR cost per sell
+order) instead of one app-wide number, since brokers charge very differently
+— some neobrokers charge under 1 EUR/trade, others charge more.
+
 ## Known simplifications (stated, not hidden)
 
 - **Vorabpauschale** is entered manually in Settings and not included in the

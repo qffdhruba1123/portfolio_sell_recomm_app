@@ -7,12 +7,19 @@ import { defaultSettings } from '../types'
  * normal pipeline instead of faking them — the demo doubles as a smoke test
  * that price lookups actually work. Lot cost bases are fictional and chosen to
  * illustrate a gain and a loss scenario, not real purchase history.
+ *
+ * Deliberately touches every field the app has: three institutions with
+ * different broker fees, a Bestandsschutz (pre-2009) lot, a Teilfreistellung
+ * override, and cash balances spanning all three interest payout frequencies
+ * — so loading demo data shows what each part of the app actually does
+ * instead of just a plausible-looking portfolio.
  */
 /** `existingCorsProxyPrefix`, if given, is preserved rather than reset to default — a user's already-configured proxy shouldn't be silently clobbered by loading demo data. */
 export function buildDemoState(existingCorsProxyPrefix?: string): AppState {
   const institutions = [
-    { id: 'demo-inst-main', label: 'Hauptbroker', submittedEur: 700, usedEur: 210 },
-    { id: 'demo-inst-second', label: 'Zweitdepot', submittedEur: 300, usedEur: 0 },
+    { id: 'demo-inst-main', label: 'Hauptbroker', submittedEur: 500, usedEur: 210, brokerFeeEur: 1.0 },
+    { id: 'demo-inst-second', label: 'Zweitdepot', submittedEur: 300, usedEur: 0, brokerFeeEur: 0 },
+    { id: 'demo-inst-third', label: 'Neobroker', submittedEur: 200, usedEur: 50, brokerFeeEur: 0.99 },
   ]
 
   const holdings = [
@@ -23,6 +30,7 @@ export function buildDemoState(existingCorsProxyPrefix?: string): AppState {
       securityType: 'STOCK' as const,
       institutionId: 'demo-inst-main',
       lots: [
+        { id: 'l0', acquiredAt: '2003-04-01', quantity: 5, unitCostEur: 8.0, note: 'Bestandsschutz — acquired before 2009, permanently tax-exempt' },
         { id: 'l1', acquiredAt: '2017-03-01', quantity: 15, unitCostEur: 42.5, note: 'Initial purchase' },
         { id: 'l2', acquiredAt: '2019-11-15', quantity: 10, unitCostEur: 88.0 },
         { id: 'l3', acquiredAt: '2023-06-10', quantity: 5, unitCostEur: 260.0 },
@@ -41,7 +49,7 @@ export function buildDemoState(existingCorsProxyPrefix?: string): AppState {
       identifier: 'VWCE.DE',
       displayName: 'Vanguard FTSE All-World UCITS ETF',
       securityType: 'ETF' as const,
-      institutionId: 'demo-inst-main',
+      institutionId: 'demo-inst-second',
       lots: [
         { id: 'l5', acquiredAt: '2019-08-01', quantity: 60, unitCostEur: 55.0 },
         { id: 'l6', acquiredAt: '2022-04-01', quantity: 30, unitCostEur: 110.0 },
@@ -52,15 +60,16 @@ export function buildDemoState(existingCorsProxyPrefix?: string): AppState {
       identifier: 'EUNA.DE',
       displayName: 'iShares Core Global Aggregate Bond UCITS ETF',
       securityType: 'ETF' as const,
-      institutionId: 'demo-inst-second',
+      institutionId: 'demo-inst-third',
       teilfreistellungOverride: 0, // bond funds don't qualify for the equity-fund Teilfreistellung
       lots: [{ id: 'l7', acquiredAt: '2020-05-01', quantity: 500, unitCostEur: 5.1, note: 'Bond fund, no Teilfreistellung' }],
     },
   ]
 
   const cashBalances = [
-    { id: 'demo-cash-1', label: 'Tagesgeld', amountEur: 3500, institutionId: 'demo-inst-main' },
-    { id: 'demo-cash-2', label: 'Girokonto', amountEur: 800, institutionId: 'demo-inst-main' },
+    { id: 'demo-cash-1', label: 'Tagesgeld', amountEur: 3500, institutionId: 'demo-inst-main', interestRatePct: 2.5, interestPayoutFrequency: 'monthly' as const },
+    { id: 'demo-cash-2', label: 'Girokonto', amountEur: 800, institutionId: 'demo-inst-main', interestRatePct: 0, interestPayoutFrequency: 'annually' as const },
+    { id: 'demo-cash-3', label: 'Festgeld', amountEur: 2000, institutionId: 'demo-inst-third', interestRatePct: 3.2, interestPayoutFrequency: 'quarterly' as const },
   ]
 
   return {

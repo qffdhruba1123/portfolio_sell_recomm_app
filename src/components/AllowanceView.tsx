@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { usePortfolio } from '../state/PortfolioContext'
-import { checkAllowanceOverAllocation, remainingAllowance, suggestInstitutionToTrim } from '../lib/tax'
+import type { InterestPayoutFrequency } from '../types'
+import { checkAllowanceOverAllocation, remainingAllowance, suggestAllowanceSplit, suggestInstitutionToTrim } from '../lib/tax'
+import { estimateIncomeByInstitution } from '../lib/allowancePlanning'
 import { formatEur } from '../lib/format'
 import { Badge, Button, Card, Field, NumberInput, Select, TextInput } from './ui'
 
@@ -60,6 +62,99 @@ function NewCashForm({ institutions, onAdd }: { institutions: { id: string; labe
   )
 }
 
+function AllowanceSplitSuggestionCard() {
+  const { state, updateInstitution } = usePortfolio()
+  const { holdings, cashBalances, institutions, settings } = state
+  const previousYear = new Date().getFullYear() - 1
+
+  const [suggestions, setSuggestions] = useState<ReturnType<typeof suggestAllowanceSplit> | null>(null)
+  const [unresolvedCount, setUnresolvedCount] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleEstimate() {
+    setLoading(true)
+    setError(null)
+    try {
+      const { incomeByInstitutionEur, unresolvedHoldingIds } = await estimateIncomeByInstitution(
+        holdings,
+        cashBalances,
+        previousYear,
+        settings.corsProxyPrefix,
+      )
+      setSuggestions(suggestAllowanceSplit(institutions, incomeByInstitutionEur, settings.filingStatus))
+      setUnresolvedCount(unresolvedHoldingIds.length)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card>
+      <h2 className="mb-1 font-semibold text-slate-900">Suggest an allowance split</h2>
+      <p className="mb-2 text-xs text-slate-500">
+        Estimates each institution's {previousYear} dividend income (from Yahoo Finance's dividend history and your
+        lot quantities, as a proxy for expected income) plus each cash balance's projected interest for the rest of
+        this year (from the rate and payout frequency you enter below), then suggests filing the annual allowance
+        wherever the income actually is — fully covering the highest-income institution first, since real-time
+        withholding relief is only useful where income occurs. This is a planning estimate, not exact accounting: it
+        assumes continuous holding since each lot's acquisition date (this app has no historical sale record) and
+        converts foreign-currency dividends at a single mid-year FX rate rather than the rate on each payment date.
+      </p>
+      <Button variant="secondary" onClick={handleEstimate} disabled={loading || institutions.length === 0}>
+        {loading ? 'Estimating…' : `Estimate from ${previousYear}'s dividends + interest`}
+      </Button>
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {unresolvedCount > 0 && (
+        <p className="mt-2 text-xs text-amber-700">
+          {unresolvedCount} holding(s) couldn't be resolved on Yahoo Finance and were excluded from the estimate
+          rather than guessed.
+        </p>
+      )}
+      {suggestions && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[480px] text-sm">
+            <thead>
+              <tr className="text-left text-slate-500">
+                <th className="py-1">Institution</th>
+                <th className="py-1 text-right">Est. {previousYear} income</th>
+                <th className="py-1 text-right">Suggested allowance</th>
+                <th className="py-1 text-right">Currently submitted</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {suggestions.map((s) => {
+                const institution = institutions.find((i) => i.id === s.institutionId)
+                if (!institution) return null
+                return (
+                  <tr key={s.institutionId} className="border-t border-slate-100">
+                    <td className="py-1">{institution.label}</td>
+                    <td className="py-1 text-right">{formatEur(s.estimatedIncomeEur)}</td>
+                    <td className="py-1 text-right font-medium">{formatEur(s.suggestedSubmittedEur)}</td>
+                    <td className="py-1 text-right text-slate-500">{formatEur(institution.submittedEur)}</td>
+                    <td className="py-1 text-right">
+                      <button
+                        className="text-xs text-slate-700 hover:underline"
+                        disabled={institution.submittedEur === s.suggestedSubmittedEur}
+                        onClick={() => updateInstitution(institution.id, { submittedEur: s.suggestedSubmittedEur })}
+                      >
+                        apply
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export function AllowanceView() {
   const {
     state,
@@ -94,7 +189,8 @@ export function AllowanceView() {
         <p className="mb-3 text-xs text-slate-500">
           Annual cap for {settings.filingStatus === 'single' ? 'single filers' : 'married filers'}:{' '}
           {formatEur(overAllocation.capEur)}. Enter the submitted and used figures exactly as shown on each broker's
-          own tax-exemption screen — remaining is always derived, never edited directly.
+          own tax-exemption screen — remaining is always derived, never edited directly. Sell fee is that broker's
+          flat cost per sell order (varies by broker — e.g. some neobrokers charge under 1 EUR/trade).
         </p>
 
         {overAllocation.isOverAllocated && (
@@ -115,13 +211,14 @@ export function AllowanceView() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[480px] text-sm">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="text-left text-slate-500">
                 <th className="py-1">Institution</th>
                 <th className="py-1 text-right">Submitted</th>
                 <th className="py-1 text-right">Used</th>
                 <th className="py-1 text-right">Remaining</th>
+                <th className="py-1 text-right">Sell fee</th>
                 <th />
               </tr>
             </thead>
@@ -149,6 +246,14 @@ export function AllowanceView() {
                   </td>
                   <td className="py-1 text-right font-medium">{formatEur(remainingAllowance(i))}</td>
                   <td className="py-1 text-right">
+                    <NumberInput
+                      className="text-right"
+                      value={i.brokerFeeEur ?? 0}
+                      onChange={(v) => updateInstitution(i.id, { brokerFeeEur: v })}
+                      step="any"
+                    />
+                  </td>
+                  <td className="py-1 text-right">
                     <button className="text-xs text-red-600 hover:underline" onClick={() => handleRemoveInstitution(i.id, i.label)}>
                       remove
                     </button>
@@ -159,19 +264,23 @@ export function AllowanceView() {
           </table>
         </div>
         <div className="mt-3">
-          <NewInstitutionForm onAdd={(label) => addInstitution({ label, submittedEur: 0, usedEur: 0 })} />
+          <NewInstitutionForm onAdd={(label) => addInstitution({ label, submittedEur: 0, usedEur: 0, brokerFeeEur: 0 })} />
         </div>
       </Card>
+
+      <AllowanceSplitSuggestionCard />
 
       <Card>
         <h2 className="mb-2 font-semibold text-slate-900">Cash balances</h2>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[420px] text-sm">
+          <table className="w-full min-w-[620px] text-sm">
             <thead>
               <tr className="text-left text-slate-500">
                 <th className="py-1">Label</th>
                 <th className="py-1">Institution</th>
                 <th className="py-1 text-right">Amount</th>
+                <th className="py-1 text-right">Rate (% p.a.)</th>
+                <th className="py-1">Payout</th>
                 <th />
               </tr>
             </thead>
@@ -199,6 +308,24 @@ export function AllowanceView() {
                     />
                   </td>
                   <td className="py-1 text-right">
+                    <NumberInput
+                      className="text-right"
+                      value={c.interestRatePct ?? 0}
+                      onChange={(v) => updateCashBalance(c.id, { interestRatePct: v })}
+                      step="any"
+                    />
+                  </td>
+                  <td className="py-1">
+                    <Select
+                      value={c.interestPayoutFrequency ?? 'annually'}
+                      onChange={(e) => updateCashBalance(c.id, { interestPayoutFrequency: e.target.value as InterestPayoutFrequency })}
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="quarterly">Quarterly</option>
+                      <option value="annually">Annually</option>
+                    </Select>
+                  </td>
+                  <td className="py-1 text-right">
                     <button className="text-xs text-red-600 hover:underline" onClick={() => removeCashBalance(c.id)}>
                       remove
                     </button>
@@ -215,6 +342,13 @@ export function AllowanceView() {
             <NewCashForm institutions={institutions} onAdd={(label, amountEur, institutionId) => addCashBalance({ label, amountEur, institutionId })} />
           </div>
         )}
+        <p className="mt-2 text-xs text-slate-500">
+          Interest counts toward that institution's Sparerpauschbetrag the same as dividends and capital gains, but
+          there's no way to fetch a bank's rate automatically — enter the rate and how often it's paid out, and the
+          allowance-split suggestion above projects how much interest is still coming this year from today's
+          balance (assumes the balance stays roughly constant and that payouts land on regular month/quarter/year
+          boundaries).
+        </p>
       </Card>
 
       <Card className="border-slate-300 bg-slate-50">

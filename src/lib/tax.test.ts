@@ -12,6 +12,7 @@ import {
   netTaxPools,
   remainingAllowance,
   settleInstitutionTax,
+  suggestAllowanceSplit,
   suggestInstitutionToTrim,
 } from './tax'
 
@@ -293,5 +294,65 @@ describe('suggestInstitutionToTrim', () => {
       { id: 'b', label: 'B', submittedEur: 1000, usedEur: 200 }, // headroom 800
     ]
     expect(suggestInstitutionToTrim(institutions)?.id).toBe('b')
+  })
+})
+
+describe('suggestAllowanceSplit', () => {
+  it('fully covers the highest-income institution first, up to the cap', () => {
+    const institutions: Institution[] = [
+      { id: 'low', label: 'Low income', submittedEur: 0, usedEur: 0 },
+      { id: 'high', label: 'High income', submittedEur: 0, usedEur: 0 },
+    ]
+    const income = { low: 100, high: 1500 } // single-filer cap is 1000
+    const result = suggestAllowanceSplit(institutions, income, 'single')
+    const high = result.find((r) => r.institutionId === 'high')!
+    const low = result.find((r) => r.institutionId === 'low')!
+    expect(high.suggestedSubmittedEur).toBe(1000) // capped at the annual limit, not its full 1500 income
+    expect(low.suggestedSubmittedEur).toBe(0) // nothing left after the higher-income institution
+  })
+
+  it('never suggests more than an institution actually needs, even with cap to spare', () => {
+    const institutions: Institution[] = [
+      { id: 'a', label: 'A', submittedEur: 0, usedEur: 0 },
+      { id: 'b', label: 'B', submittedEur: 0, usedEur: 0 },
+    ]
+    const income = { a: 300, b: 200 } // total 500, well under the 1000 single-filer cap
+    const result = suggestAllowanceSplit(institutions, income, 'single')
+    expect(result.find((r) => r.institutionId === 'a')?.suggestedSubmittedEur).toBe(300)
+    expect(result.find((r) => r.institutionId === 'b')?.suggestedSubmittedEur).toBe(200)
+  })
+
+  it('splits the cap across more than two institutions in income order', () => {
+    const institutions: Institution[] = [
+      { id: 'a', label: 'A', submittedEur: 0, usedEur: 0 },
+      { id: 'b', label: 'B', submittedEur: 0, usedEur: 0 },
+      { id: 'c', label: 'C', submittedEur: 0, usedEur: 0 },
+    ]
+    const income = { a: 600, b: 500, c: 400 } // total 1500, cap 1000
+    const result = suggestAllowanceSplit(institutions, income, 'single')
+    // a takes 600, leaving 400 for b (capped from its 500), c gets nothing.
+    expect(result.find((r) => r.institutionId === 'a')?.suggestedSubmittedEur).toBe(600)
+    expect(result.find((r) => r.institutionId === 'b')?.suggestedSubmittedEur).toBe(400)
+    expect(result.find((r) => r.institutionId === 'c')?.suggestedSubmittedEur).toBe(0)
+  })
+
+  it('uses the married filer cap when applicable', () => {
+    const institutions: Institution[] = [{ id: 'a', label: 'A', submittedEur: 0, usedEur: 0 }]
+    const result = suggestAllowanceSplit(institutions, { a: 5000 }, 'married')
+    expect(result[0].suggestedSubmittedEur).toBe(2000)
+  })
+
+  it('treats a missing income entry as zero rather than throwing', () => {
+    const institutions: Institution[] = [{ id: 'a', label: 'A', submittedEur: 0, usedEur: 0 }]
+    const result = suggestAllowanceSplit(institutions, {}, 'single')
+    expect(result[0].suggestedSubmittedEur).toBe(0)
+    expect(result[0].estimatedIncomeEur).toBe(0)
+  })
+
+  it('treats a negative income entry as zero (never suggests a negative allowance)', () => {
+    const institutions: Institution[] = [{ id: 'a', label: 'A', submittedEur: 0, usedEur: 0 }]
+    const result = suggestAllowanceSplit(institutions, { a: -50 }, 'single')
+    expect(result[0].suggestedSubmittedEur).toBe(0)
+    expect(result[0].estimatedIncomeEur).toBe(0)
   })
 })

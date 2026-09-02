@@ -8,6 +8,8 @@ export interface Institution {
   submittedEur: number
   /** Allowance already consumed at this institution this year, as reported by the broker. */
   usedEur: number
+  /** Flat fee this institution charges per sell order, EUR - varies by broker (e.g. some neobrokers charge under 1 EUR/trade, others charge more). Optional/defaults to 0 so existing saved data doesn't need a migration. */
+  brokerFeeEur?: number
 }
 
 export interface Lot {
@@ -33,11 +35,17 @@ export interface Holding {
   lots: Lot[]
 }
 
+export type InterestPayoutFrequency = 'monthly' | 'quarterly' | 'annually'
+
 export interface CashBalance {
   id: string
   label: string
   amountEur: number
   institutionId: string
+  /** Annual interest rate, e.g. 2.5 meaning 2.5%/year. Counts toward that institution's Sparerpauschbetrag same as dividends. Optional/defaults to 0 (no interest) when unset. */
+  interestRatePct?: number
+  /** How often the account pays out interest - affects how much of this year's interest is still ahead vs. already paid. Defaults to 'annually' when unset. */
+  interestPayoutFrequency?: InterestPayoutFrequency
 }
 
 export interface Settings {
@@ -46,7 +54,6 @@ export interface Settings {
   /** e.g. 0.08 or 0.09 */
   churchTaxRate: number
   concentrationThresholdPct: number
-  brokerFeeEur: number
   /** Manually entered, this year's Vorabpauschale total across the portfolio. Known gap: not computed. */
   vorabpauschaleEur: number
   corsProxyPrefix: string
@@ -81,7 +88,6 @@ export function defaultSettings(): Settings {
     churchTaxEnabled: false,
     churchTaxRate: 0.09,
     concentrationThresholdPct: 10,
-    brokerFeeEur: 0,
     vorabpauschaleEur: 0,
     corsProxyPrefix: AUTO_PROXY,
   }

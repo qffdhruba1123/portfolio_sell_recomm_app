@@ -274,6 +274,70 @@ describe('recommend — isFractionalUnit', () => {
   })
 })
 
+describe('recommend — per-institution broker fees', () => {
+  it('charges each holding once at its own institution\'s fee rate, not a shared global rate', () => {
+    const institutionsWithFees: Institution[] = [
+      { id: 'cheap', label: 'Cheap broker', submittedEur: 1000, usedEur: 0, brokerFeeEur: 0.99 },
+      { id: 'pricey', label: 'Pricey broker', submittedEur: 1000, usedEur: 0, brokerFeeEur: 5 },
+    ]
+    const a = holding({
+      id: 'a',
+      institutionId: 'cheap',
+      lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 100 }], // loss, sells fully
+    })
+    const b = holding({
+      id: 'b',
+      institutionId: 'pricey',
+      lots: [{ id: 'l2', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 100 }], // loss, sells fully
+    })
+    const result = recommend({
+      amountNeededEur: 1000, // forces both holdings to be sold (500 + 500 = 1000)
+      holdings: [a, b],
+      cashBalances: [],
+      institutions: institutionsWithFees,
+      settings: defaultSettings(),
+      prices: { a: 50, b: 50 },
+    })
+    expect(result.taxOptimizedPlan?.totalFeesEur).toBeCloseTo(0.99 + 5)
+  })
+
+  it('charges the fee once per holding touched, not per lot consumed within it', () => {
+    const institutionsWithFees: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 1000, usedEur: 0, brokerFeeEur: 2 }]
+    const h = holding({
+      id: 'h1',
+      institutionId: 'inst1',
+      lots: [
+        { id: 'l1', acquiredAt: '2020-01-01', quantity: 5, unitCostEur: 10 },
+        { id: 'l2', acquiredAt: '2021-01-01', quantity: 5, unitCostEur: 10 },
+      ],
+    })
+    const result = recommend({
+      amountNeededEur: 100,
+      holdings: [h],
+      cashBalances: [],
+      institutions: institutionsWithFees,
+      settings: defaultSettings(),
+      prices: { h1: 10 },
+    })
+    expect(result.taxOptimizedPlan?.lineItems[0].isFullPosition).toBe(true) // consumes both lots in one sale
+    expect(result.taxOptimizedPlan?.totalFeesEur).toBeCloseTo(2) // one fee, not two
+  })
+
+  it('treats a missing brokerFeeEur as zero rather than throwing', () => {
+    const institutionsNoFee: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 1000, usedEur: 0 }]
+    const h = holding({ id: 'h1', institutionId: 'inst1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }] })
+    const result = recommend({
+      amountNeededEur: 100,
+      holdings: [h],
+      cashBalances: [],
+      institutions: institutionsNoFee,
+      settings: defaultSettings(),
+      prices: { h1: 10 },
+    })
+    expect(result.taxOptimizedPlan?.totalFeesEur).toBe(0)
+  })
+})
+
 describe('retirementReference', () => {
   it('returns a 3-4% range that never caps the requested amount', () => {
     const ref = retirementReference(100_000)

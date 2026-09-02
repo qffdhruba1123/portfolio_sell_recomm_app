@@ -221,7 +221,7 @@ export function buildCsvImportPlan(rows: CsvLotRow[], existingHoldings: Holding[
   }
 
   return {
-    newInstitutions: [...newInstitutionLabels.values()].map((label) => ({ label, submittedEur: 0, usedEur: 0 })),
+    newInstitutions: [...newInstitutionLabels.values()].map((label) => ({ label, submittedEur: 0, usedEur: 0, brokerFeeEur: 0 })),
     institutionKeyToLabel: Object.fromEntries(newInstitutionLabels.entries()),
     newHoldings: [...newHoldingsByKey.values()],
     appendedLots: [...appendedByHoldingId.entries()].map(([holdingId, lots]) => ({ holdingId, lots })),
