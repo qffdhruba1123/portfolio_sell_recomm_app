@@ -1,11 +1,13 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { usePortfolio } from '../state/PortfolioContext'
+import type { Holding, Institution, Settings } from '../types'
 import type { SecurityType } from '../types'
-import { totalQuantity } from '../lib/recommend'
+import { buildSingleHoldingSalePlan, totalQuantity, type PriceMap } from '../lib/recommend'
 import { formatEur } from '../lib/format'
 import { CSV_TEMPLATE_EXAMPLE_ROW, CSV_TEMPLATE_HEADER, type CsvImportSummary } from '../lib/csv'
 import { getHistoricalPriceEur } from '../lib/yahoo'
 import { Badge, Button, Card, Field, NumberInput, Select, TextInput } from './ui'
+import { SalePlanFinancials } from './SalePlanSummary'
 
 function downloadCsvTemplate() {
   const blob = new Blob([`${CSV_TEMPLATE_HEADER}\n${CSV_TEMPLATE_EXAMPLE_ROW}\n`], { type: 'text/csv' })
@@ -205,8 +207,174 @@ function AddLotForm({
   )
 }
 
+function RecordSaleForm({
+  holding,
+  currentPrice,
+  allHoldings,
+  institutions,
+  settings,
+  priceMap,
+}: {
+  holding: Holding
+  currentPrice: number | undefined
+  allHoldings: Holding[]
+  institutions: Institution[]
+  settings: Settings
+  priceMap: PriceMap
+}) {
+  const { executePlan } = usePortfolio()
+  const [open, setOpen] = useState(false)
+  const [quantity, setQuantity] = useState(0)
+  const [pricePerUnitEur, setPricePerUnitEur] = useState(0)
+
+  const totalQty = totalQuantity(holding)
+  if (totalQty <= 0) return null
+
+  if (!open) {
+    return (
+      <button
+        className="text-xs text-slate-600 hover:underline"
+        onClick={() => {
+          setQuantity(totalQty)
+          setPricePerUnitEur(Number.isFinite(currentPrice) ? (currentPrice as number) : 0)
+          setOpen(true)
+        }}
+      >
+        record a sale
+      </button>
+    )
+  }
+
+  const plan =
+    quantity > 0 && pricePerUnitEur > 0
+      ? buildSingleHoldingSalePlan(holding, quantity, pricePerUnitEur, allHoldings, priceMap, institutions, settings)
+      : null
+
+  return (
+    <div className="mt-2 w-full rounded-md border border-slate-200 p-2">
+      <p className="text-xs text-slate-600">
+        For a sale made on your own initiative — not from a Recommend plan. Records it the same way: consumes FIFO
+        lots and updates allowance used and loss pots at this holding's institution.
+      </p>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <Field label="Quantity sold">
+          <NumberInput className="w-28" value={quantity} onChange={setQuantity} min={0} max={totalQty} step="any" />
+        </Field>
+        <Field label="Price per unit (EUR)">
+          <NumberInput className="w-28" value={pricePerUnitEur} onChange={setPricePerUnitEur} min={0} step="any" />
+        </Field>
+      </div>
+      {quantity > totalQty && <p className="mt-1 text-xs text-red-600">Only {totalQty} unit(s) are held — will be capped at that amount.</p>}
+
+      {plan && plan.lineItems.length > 0 && (
+        <div className="mt-2">
+          <SalePlanFinancials plan={plan} />
+        </div>
+      )}
+
+      <div className="mt-2 flex gap-2">
+        <Button
+          disabled={!plan || plan.lineItems.length === 0}
+          onClick={() => {
+            if (!plan || plan.lineItems.length === 0) return
+            const li = plan.lineItems[0]
+            if (
+              confirm(
+                `Record this sale of ${li.quantitySold.toFixed(2)} unit(s) of "${holding.displayName}"? This updates this holding's lots and the allowance used / loss pots at ${li.institutionLabel}. Export a backup first if you're unsure.`,
+              )
+            ) {
+              executePlan(plan)
+              setOpen(false)
+              setQuantity(0)
+              setPricePerUnitEur(0)
+            }
+          }}
+        >
+          Record this sale
+        </Button>
+        <Button variant="secondary" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function StockSplitForm({ holding }: { holding: Holding }) {
+  const { applyStockSplitToHolding } = usePortfolio()
+  const [open, setOpen] = useState(false)
+  const [ratio, setRatio] = useState(2)
+
+  const totalQty = totalQuantity(holding)
+  if (totalQty <= 0) return null
+
+  if (!open) {
+    return (
+      <button className="text-xs text-slate-600 hover:underline" onClick={() => setOpen(true)}>
+        record a stock split
+      </button>
+    )
+  }
+
+  const totalCostEur = holding.lots.reduce((sum, l) => sum + l.quantity * l.unitCostEur, 0)
+  const avgUnitCostEur = totalQty > 0 ? totalCostEur / totalQty : 0
+  const validRatio = ratio > 0
+
+  return (
+    <div className="mt-2 w-full rounded-md border border-slate-200 p-2">
+      <p className="text-xs text-slate-600">
+        A split changes share count and cost-per-share but never total cost basis or acquired dates — not a taxable
+        event in Germany. Enter the ratio: 2 for a 2-for-1 split, 0.5 for a 1-for-2 reverse split, 1.5 for a 3-for-2
+        split.
+      </p>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <Field label="Split ratio">
+          <NumberInput className="w-24" value={ratio} onChange={setRatio} min={0} step="any" />
+        </Field>
+        {validRatio && (
+          <p className="text-xs text-slate-500">
+            {totalQty.toFixed(4)} units @ avg {formatEur(avgUnitCostEur)} → {(totalQty * ratio).toFixed(4)} units @
+            avg {formatEur(avgUnitCostEur / ratio)}
+          </p>
+        )}
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Button
+          disabled={!validRatio || ratio === 1}
+          onClick={() => {
+            if (
+              confirm(
+                `Apply a ${ratio}:1 split to "${holding.displayName}"? This rewrites every lot's quantity and unit cost — make sure ${ratio} is the correct ratio (e.g. 2 for a 2-for-1 split).`,
+              )
+            ) {
+              applyStockSplitToHolding(holding.id, ratio)
+              setOpen(false)
+              setRatio(2)
+            }
+          }}
+        >
+          Apply split
+        </Button>
+        <Button variant="secondary" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function HoldingsView() {
   const { state, prices, pricesLoading, refreshPrices, addHolding, removeHolding, addLot, removeLot, updateHolding } = usePortfolio()
+
+  const priceMap: PriceMap = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(prices)
+          .filter(([, info]) => Number.isFinite(info.price))
+          .map(([id, info]) => [id, info.price]),
+      ),
+    [prices],
+  )
 
   return (
     <div className="space-y-4">
@@ -285,6 +453,18 @@ export function HoldingsView() {
               proxyPrefix={state.settings.corsProxyPrefix}
               onAdd={(acquiredAt, quantity, unitCostEur) => addLot(h.id, { acquiredAt, quantity, unitCostEur })}
             />
+
+            <div className="mt-2 flex flex-wrap gap-3 border-t border-slate-100 pt-2">
+              <RecordSaleForm
+                holding={h}
+                currentPrice={priceInfo?.price}
+                allHoldings={state.holdings}
+                institutions={state.institutions}
+                settings={state.settings}
+                priceMap={priceMap}
+              />
+              <StockSplitForm holding={h} />
+            </div>
           </Card>
         )
       })}

@@ -3,6 +3,7 @@ import type { Holding, Institution, Lot, Settings } from '../types'
 import { defaultSettings } from '../types'
 import {
   applyAllowance,
+  applyStockSplit,
   applyTeilfreistellung,
   checkAllowanceOverAllocation,
   computeHoldingSale,
@@ -429,5 +430,40 @@ describe('suggestAllowanceSplit', () => {
     const result = suggestAllowanceSplit(institutions, { a: -50 }, 'single')
     expect(result[0].suggestedSubmittedEur).toBe(0)
     expect(result[0].estimatedIncomeEur).toBe(0)
+  })
+})
+
+describe('applyStockSplit', () => {
+  it('doubles quantity and halves unit cost for a 2-for-1 split, preserving total cost basis', () => {
+    const lots = [lot('a', '2020-01-01', 10, 100)]
+    const result = applyStockSplit(lots, 2)
+    expect(result[0].quantity).toBe(20)
+    expect(result[0].unitCostEur).toBe(50)
+    expect(result[0].quantity * result[0].unitCostEur).toBeCloseTo(lots[0].quantity * lots[0].unitCostEur)
+  })
+
+  it('halves quantity and doubles unit cost for a 1-for-2 reverse split', () => {
+    const lots = [lot('a', '2020-01-01', 10, 100)]
+    const result = applyStockSplit(lots, 0.5)
+    expect(result[0].quantity).toBe(5)
+    expect(result[0].unitCostEur).toBe(200)
+  })
+
+  it('preserves the original acquiredAt date - a split does not reset Bestandsschutz eligibility or FIFO order', () => {
+    const lots = [lot('a', '2005-01-01', 10, 100)]
+    const result = applyStockSplit(lots, 3)
+    expect(result[0].acquiredAt).toBe('2005-01-01')
+  })
+
+  it('applies to every lot independently', () => {
+    const lots = [lot('a', '2018-01-01', 10, 100), lot('b', '2020-01-01', 5, 40)]
+    const result = applyStockSplit(lots, 2)
+    expect(result[0]).toMatchObject({ quantity: 20, unitCostEur: 50 })
+    expect(result[1]).toMatchObject({ quantity: 10, unitCostEur: 20 })
+  })
+
+  it('rejects a non-positive ratio rather than silently producing nonsense', () => {
+    expect(() => applyStockSplit([lot('a', '2020-01-01', 10, 100)], 0)).toThrow()
+    expect(() => applyStockSplit([lot('a', '2020-01-01', 10, 100)], -2)).toThrow()
   })
 })

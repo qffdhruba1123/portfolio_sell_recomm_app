@@ -7,6 +7,7 @@ import { getFxRate, resolveSymbol, YahooRateLimitError } from '../lib/yahoo'
 import { uid } from '../lib/format'
 import { buildCsvImportPlan, type CsvImportSummary, parseCsvRows } from '../lib/csv'
 import { computeExecutionUpdates, type SalePlan } from '../lib/recommend'
+import { applyStockSplit } from '../lib/tax'
 
 export interface PriceInfo {
   price: number
@@ -49,6 +50,7 @@ interface PortfolioContextValue {
   addLot: (holdingId: string, lot: Omit<Lot, 'id'>) => void
   updateLot: (holdingId: string, lotId: string, patch: Partial<Omit<Lot, 'id'>>) => void
   removeLot: (holdingId: string, lotId: string) => void
+  applyStockSplitToHolding: (holdingId: string, ratio: number) => void
 
   addCashBalance: (c: Omit<CashBalance, 'id'>) => void
   updateCashBalance: (id: string, patch: Partial<Omit<CashBalance, 'id'>>) => void
@@ -57,6 +59,7 @@ interface PortfolioContextValue {
   addInstitution: (i: Omit<Institution, 'id'>) => string
   updateInstitution: (id: string, patch: Partial<Omit<Institution, 'id'>>) => void
   removeInstitution: (id: string) => void
+  startNewTaxYear: () => void
 
   updateSettings: (patch: Partial<Settings>) => void
 
@@ -159,6 +162,13 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
+  const applyStockSplitToHolding = useCallback((holdingId: string, ratio: number) => {
+    setState((s) => ({
+      ...s,
+      holdings: s.holdings.map((h) => (h.id === holdingId ? { ...h, lots: applyStockSplit(h.lots, ratio) } : h)),
+    }))
+  }, [])
+
   const addCashBalance = useCallback((c: Omit<CashBalance, 'id'>) => {
     setState((s) => ({ ...s, cashBalances: [...s.cashBalances, { ...c, id: uid() }] }))
   }, [])
@@ -183,6 +193,16 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
 
   const removeInstitution = useCallback((id: string) => {
     setState((s) => ({ ...s, institutions: s.institutions.filter((i) => i.id !== id) }))
+  }, [])
+
+  /**
+   * Sparerpauschbetrag consumption (usedEur) resets to zero for every
+   * institution each January - it's a per-calendar-year withholding-relief
+   * budget. Loss pots and submittedEur (the filed allowance split itself)
+   * carry over untouched; only usage resets.
+   */
+  const startNewTaxYear = useCallback(() => {
+    setState((s) => ({ ...s, institutions: s.institutions.map((i) => ({ ...i, usedEur: 0 })) }))
   }, [])
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
@@ -298,12 +318,14 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
     addLot,
     updateLot,
     removeLot,
+    applyStockSplitToHolding,
     addCashBalance,
     updateCashBalance,
     removeCashBalance,
     addInstitution,
     updateInstitution,
     removeInstitution,
+    startNewTaxYear,
     updateSettings,
     loadDemoData,
     clearAllData,

@@ -287,3 +287,16 @@ export function suggestAllowanceSplit(
     return { institutionId: institution.id, estimatedIncomeEur, suggestedSubmittedEur }
   })
 }
+
+/**
+ * A stock split (or reverse split) is not a taxable event in Germany - it
+ * just redistributes each lot's existing quantity and cost basis over more
+ * (or fewer) shares, preserving total cost basis and, critically, the
+ * original acquiredAt date (a split doesn't reset Bestandsschutz eligibility
+ * or FIFO ordering). ratio > 1 for a split (e.g. 2 for a 2-for-1 split),
+ * 0 < ratio < 1 for a reverse split (e.g. 0.5 for a 1-for-2 reverse split).
+ */
+export function applyStockSplit(lots: Lot[], ratio: number): Lot[] {
+  if (!(ratio > 0)) throw new Error('Split ratio must be a positive number.')
+  return lots.map((l) => ({ ...l, quantity: l.quantity * ratio, unitCostEur: l.unitCostEur / ratio }))
+}

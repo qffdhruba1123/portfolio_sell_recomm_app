@@ -142,6 +142,13 @@ Each institution also has its own **sell fee** (a flat EUR cost per sell
 order) instead of one app-wide number, since brokers charge very differently
 — some neobrokers charge under 1 EUR/trade, others charge more.
 
+If you file as married, the Allowance tab also notes a real practical
+wrinkle: filing more than your own default half of the combined €2,000
+allowance at an account held in only one spouse's name technically requires a
+**joint Freistellungsauftrag** naming both spouses — not every broker's form
+supports this cleanly, so it's worth checking before submitting an uneven
+split at a single-name account.
+
 ## Loss pots carry into a new recommendation
 
 Every recommendation used to net gains and losses only among the holdings in
@@ -184,6 +191,36 @@ used, and replaces its loss pots with the plan's own projected after-values.
 Use it only once you've actually executed the sale elsewhere. It's a real
 mutation, so it asks for confirmation first, and — like every other change in
 this app — it's undoable only via your last JSON export.
+
+## Recording sales, splits, and a new tax year
+
+Not every sale comes from a Recommend plan — sometimes you sell because of
+news, a personal rebalancing decision, or anything else unrelated to a cash
+need this app computed. Each holding on the Holdings tab has a **"record a
+sale"** link for exactly that: enter the quantity and price you actually sold
+at, and it shows the same tax/fee breakdown a Recommend plan would (FIFO lot
+selection, Bestandsschutz, Teilfreistellung, per-institution netting against
+loss pots) before you confirm. Confirming updates your lots and that
+institution's allowance-used and loss pots the same way "Mark this plan as
+executed" does — it's the same underlying calculation, just for a single
+holding you're recording after the fact rather than a multi-holding plan this
+app suggested.
+
+Each holding also has a **"record a stock split"** link. A split (or reverse
+split) isn't a taxable event in Germany — it only changes share count and
+cost-per-share, never total cost basis or a lot's acquired date (so
+Bestandsschutz eligibility and FIFO order are unaffected). Enter the ratio
+(2 for a 2-for-1 split, 0.5 for a 1-for-2 reverse split, 1.5 for a 3-for-2
+split) and it rewrites every lot accordingly, with a before/after preview
+shown first.
+
+The Allowance tab has a **"Start new tax year"** button. Each institution's
+"used" allowance figure is a per-calendar-year budget that resets to zero
+every January at the broker itself — this button does the same here in one
+click, once that's actually happened at your brokers, instead of editing each
+institution's used figure by hand. It deliberately leaves loss pots and
+submitted amounts untouched, since only usage resets — losses carry forward
+and your filed split doesn't change on its own.
 
 ## Two things the Dashboard watches without you asking
 

@@ -254,6 +254,31 @@ function buildPlan(
   }
 }
 
+/**
+ * A one-holding "plan" for a sale that happened independently of any
+ * Recommend suggestion - e.g. the user sold on their own initiative, not
+ * driven by a cash need this app computed. Reuses the exact same buildPlan
+ * (tax rationale, per-institution netting with loss-pot carry-in, fees) so
+ * the resulting SalePlan can be fed straight into computeExecutionUpdates /
+ * executePlan, same as a real recommendation would be.
+ */
+export function buildSingleHoldingSalePlan(
+  holding: Holding,
+  quantitySold: number,
+  pricePerUnitEur: number,
+  allHoldings: Holding[],
+  prices: PriceMap,
+  institutions: Institution[],
+  settings: Settings,
+): SalePlan {
+  const totalQty = totalQuantity(holding)
+  const cappedQty = Math.min(Math.max(quantitySold, 0), totalQty)
+  const shortfallEur = Math.max(quantitySold - totalQty, 0) * pricePerUnitEur
+  const chosen: ChosenSale[] = [{ holding, price: pricePerUnitEur, quantitySold: cappedQty, isFullPosition: totalQty - cappedQty <= 1e-9 }]
+  const effectivePrices = { ...prices, [holding.id]: pricePerUnitEur }
+  return buildPlan('tax', chosen, shortfallEur, allHoldings, effectivePrices, institutions, settings)
+}
+
 function largestRemainingConcentrationPct(allHoldings: Holding[], prices: PriceMap, chosen: ChosenSale[]): number {
   const soldQty: Record<string, number> = {}
   for (const c of chosen) soldQty[c.holding.id] = (soldQty[c.holding.id] ?? 0) + c.quantitySold

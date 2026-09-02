@@ -3,6 +3,7 @@ import type { CashBalance, Holding, Institution } from '../types'
 import { defaultSettings } from '../types'
 import {
   buildRecommendationSummaryText,
+  buildSingleHoldingSalePlan,
   computeExecutionUpdates,
   computeFullLiquidationSummary,
   concentrationPct,
@@ -667,5 +668,59 @@ describe('computeExecutionUpdates', () => {
     })
     expect(() => computeExecutionUpdates(result.taxOptimizedPlan!, [])).not.toThrow()
     expect(computeExecutionUpdates(result.taxOptimizedPlan!, []).lotUpdates).toEqual([])
+  })
+})
+
+describe('buildSingleHoldingSalePlan — recording an ad hoc sale', () => {
+  it('produces a one-line-item plan with the same tax math as an equivalent recommendation', () => {
+    const h = holding({ id: 'h1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }] }) // +400 gain at 50/unit
+    const plan = buildSingleHoldingSalePlan(h, 10, 50, [h], {}, institutions, defaultSettings())
+    expect(plan.lineItems).toHaveLength(1)
+    expect(plan.lineItems[0].isFullPosition).toBe(true)
+    expect(plan.lineItems[0].grossGainLossEur).toBeCloseTo(400)
+    expect(plan.institutionBreakdown[0].newStockPoolEur).toBeCloseTo(400)
+  })
+
+  it('marks a partial sale as not-full-position and consumes only the requested quantity', () => {
+    const h = holding({ id: 'h1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 100, unitCostEur: 5 }] })
+    const plan = buildSingleHoldingSalePlan(h, 25, 10, [h], {}, institutions, defaultSettings())
+    expect(plan.lineItems[0].isFullPosition).toBe(false)
+    expect(plan.lineItems[0].quantitySold).toBe(25)
+  })
+
+  it('caps the sale at the total held and reports the excess as a shortfall rather than throwing', () => {
+    const h = holding({ id: 'h1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 5 }] })
+    const plan = buildSingleHoldingSalePlan(h, 15, 10, [h], {}, institutions, defaultSettings()) // only 10 held
+    expect(plan.lineItems[0].quantitySold).toBe(10)
+    expect(plan.shortfallEur).toBeCloseTo(50) // 5 units short * 10/unit
+  })
+
+  it('applies a loss-pot carry-in and Bestandsschutz, same as the recommend() flow', () => {
+    const withLossPot: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 0, usedEur: 0, lossPotEquitiesEur: 1000 }]
+    const h = holding({
+      id: 'h1',
+      institutionId: 'inst1',
+      lots: [
+        { id: 'old', acquiredAt: '2005-01-01', quantity: 5, unitCostEur: 10 },
+        { id: 'new', acquiredAt: '2020-01-01', quantity: 5, unitCostEur: 10 },
+      ],
+    })
+    const plan = buildSingleHoldingSalePlan(h, 10, 50, [h], {}, withLossPot, defaultSettings())
+    expect(plan.lineItems[0].exemptGrossGainLossEur).toBeCloseTo(200) // 5 * (50-10)
+    expect(plan.institutionBreakdown[0].taxEur).toBe(0) // taxable portion fully absorbed by the 1000 loss pot
+  })
+
+  it('produces a plan that computeExecutionUpdates can consume directly, same as a real recommendation', () => {
+    const h = holding({
+      id: 'h1',
+      lots: [
+        { id: 'l1', acquiredAt: '2018-01-01', quantity: 5, unitCostEur: 10 },
+        { id: 'l2', acquiredAt: '2020-01-01', quantity: 5, unitCostEur: 10 },
+      ],
+    })
+    const plan = buildSingleHoldingSalePlan(h, 7, 50, [h], {}, institutions, defaultSettings())
+    const updates = computeExecutionUpdates(plan, [h])
+    expect(updates.lotUpdates[0].lotIdsToRemove).toEqual(['l1'])
+    expect(updates.lotUpdates[0].lotQuantityUpdates).toEqual([{ lotId: 'l2', newQuantity: 3 }])
   })
 })

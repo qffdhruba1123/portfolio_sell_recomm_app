@@ -202,6 +202,7 @@ export function AllowanceView() {
     addCashBalance,
     updateCashBalance,
     removeCashBalance,
+    startNewTaxYear,
   } = usePortfolio()
   const { institutions, cashBalances, settings } = state
 
@@ -223,13 +224,42 @@ export function AllowanceView() {
   return (
     <div className="space-y-4">
       <Card>
-        <h2 className="mb-2 font-semibold text-slate-900">Freistellungsauftrag by institution</h2>
+        <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+          <h2 className="font-semibold text-slate-900">Freistellungsauftrag by institution</h2>
+          <Button
+            variant="secondary"
+            disabled={institutions.every((i) => i.usedEur === 0)}
+            onClick={() => {
+              if (
+                confirm(
+                  "Start a new tax year? This resets every institution's \"used\" allowance to 0 — do this once, in January, after each broker's own used figure has reset for the new year. Loss pots and submitted amounts are left untouched. Export a backup first if you're unsure.",
+                )
+              ) {
+                startNewTaxYear()
+              }
+            }}
+          >
+            Start new tax year
+          </Button>
+        </div>
         <p className="mb-3 text-xs text-slate-500">
           Annual cap for {settings.filingStatus === 'single' ? 'single filers' : 'married filers'}:{' '}
           {formatEur(overAllocation.capEur)}. Enter the submitted and used figures exactly as shown on each broker's
           own tax-exemption screen — remaining is always derived, never edited directly. Sell fee is that broker's
-          flat cost per sell order (varies by broker — e.g. some neobrokers charge under 1 EUR/trade).
+          flat cost per sell order (varies by broker — e.g. some neobrokers charge under 1 EUR/trade). Each
+          institution's "used" figure resets to 0 every January (it's a per-calendar-year budget) — use "Start new
+          tax year" above once that's happened at your brokers, rather than editing each one by hand.
         </p>
+
+        {settings.filingStatus === 'married' && (
+          <p className="mb-3 text-xs text-slate-500">
+            <strong>Joint accounts:</strong> filing more than your own default half (
+            {formatEur(overAllocation.capEur / 2)}) of the combined {formatEur(overAllocation.capEur)} allowance at
+            an account held in only one spouse's name technically requires a joint Freistellungsauftrag naming both
+            spouses — not every broker's form supports this cleanly, so check that before submitting an uneven split
+            at a single-name account.
+          </p>
+        )}
 
         {overAllocation.isOverAllocated && (
           <Card className="mb-3 border-red-200 bg-red-50">
