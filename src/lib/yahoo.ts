@@ -288,3 +288,18 @@ export async function resolveSymbol(identifier: string, proxyPrefix: string): Pr
   saveSymbolCacheEntry(identifier, { symbol: firstTradable.symbol, currency: live.currency })
   return { symbol: firstTradable.symbol, currency: live.currency, price: live.price, viaEuGuess: false }
 }
+
+/**
+ * Resolves an identifier and fetches its EUR-converted closing price on a
+ * specific past date - lets a user fill in a lot's cost basis from a purchase
+ * date instead of having to remember or look up the exact price themselves.
+ */
+export async function getHistoricalPriceEur(identifier: string, dateStr: string, proxyPrefix: string): Promise<number> {
+  const resolved = await resolveSymbol(identifier, proxyPrefix)
+  const date = new Date(`${dateStr}T00:00:00Z`)
+  const historical = await getHistoricalClose(resolved.symbol, date, proxyPrefix)
+  if (!historical) throw new Error(`No historical price found for ${resolved.symbol} near ${dateStr}.`)
+  if (resolved.currency === 'EUR') return historical.close
+  const rate = await getFxRate(resolved.currency, 'EUR', proxyPrefix, date)
+  return historical.close * rate
+}

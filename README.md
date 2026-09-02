@@ -70,6 +70,12 @@ US0378331005,Apple Inc.,STOCK,Hauptbroker,2021-03-15,10,120.50,Initial purchase
 
 Download the template button on that screen for a starting file.
 
+Adding a lot by hand doesn't require knowing the exact purchase price either —
+each holding's "Add lot" form has a **"Fetch price for this date"** button
+that looks up the historical closing price for that ticker on the date you
+picked (converted to EUR at that date's FX rate if needed) and fills in the
+unit cost for you.
+
 ## Price data: Yahoo Finance via a CORS proxy
 
 Yahoo Finance's chart/search endpoints are unofficial and send no
@@ -84,7 +90,17 @@ prefix** — a self-hosted one (e.g. a few lines on Cloudflare Workers) is the
 most reliable option since it isn't shared. Price lookups are cached (symbol
 resolution indefinitely, live quotes for ~45s) to stay under Yahoo's rate
 limits; a rate-limited or failed lookup falls back to the last-known price
-with a "stale" badge rather than failing the page.
+with a "stale" badge rather than failing the page. Use the **"Test
+connection"** button in Settings to check your current proxy actually works
+without needing to load demo data or add a real holding first.
+
+## Guardrails against accidental data loss
+
+There's no undo — the JSON export in Settings is the only real safety net —
+but removing a holding, an institution, or all data does ask for confirmation
+first, since those can't be undone. Removing an institution that a holding or
+cash balance still points at is blocked outright (with a message saying which
+ones) rather than silently leaving them pointing at nothing.
 
 ## Known simplifications (stated, not hidden)
 

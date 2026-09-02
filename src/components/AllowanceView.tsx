@@ -7,7 +7,7 @@ import { Badge, Button, Card, Field, NumberInput, Select, TextInput } from './ui
 function NewInstitutionForm({ onAdd }: { onAdd: (label: string) => void }) {
   const [label, setLabel] = useState('')
   return (
-    <div className="flex items-end gap-2">
+    <div className="flex flex-wrap items-end gap-2">
       <Field label="New institution name">
         <TextInput value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Trade Republic" />
       </Field>
@@ -30,7 +30,7 @@ function NewCashForm({ institutions, onAdd }: { institutions: { id: string; labe
   const [institutionId, setInstitutionId] = useState(institutions[0]?.id ?? '')
 
   return (
-    <div className="flex items-end gap-2">
+    <div className="flex flex-wrap items-end gap-2">
       <Field label="Label">
         <TextInput value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Tagesgeld" />
       </Field>
@@ -75,6 +75,18 @@ export function AllowanceView() {
   const overAllocation = checkAllowanceOverAllocation(institutions, settings.filingStatus)
   const trimSuggestion = overAllocation.isOverAllocated ? suggestInstitutionToTrim(institutions) : null
 
+  function handleRemoveInstitution(institutionId: string, label: string) {
+    const holdingsUsing = state.holdings.filter((h) => h.institutionId === institutionId)
+    const cashUsing = cashBalances.filter((c) => c.institutionId === institutionId)
+    if (holdingsUsing.length > 0 || cashUsing.length > 0) {
+      alert(
+        `Can't remove "${label}" — ${holdingsUsing.length} holding(s) and ${cashUsing.length} cash balance(s) still reference it. Reassign or remove those first.`,
+      )
+      return
+    }
+    if (confirm(`Remove institution "${label}"? This can't be undone.`)) removeInstitution(institutionId)
+  }
+
   return (
     <div className="space-y-4">
       <Card>
@@ -102,48 +114,50 @@ export function AllowanceView() {
           </Card>
         )}
 
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-slate-500">
-              <th className="py-1">Institution</th>
-              <th className="py-1 text-right">Submitted</th>
-              <th className="py-1 text-right">Used</th>
-              <th className="py-1 text-right">Remaining</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {institutions.map((i) => (
-              <tr key={i.id} className="border-t border-slate-100">
-                <td className="py-1">
-                  <TextInput value={i.label} onChange={(e) => updateInstitution(i.id, { label: e.target.value })} />
-                </td>
-                <td className="py-1 text-right">
-                  <NumberInput
-                    className="text-right"
-                    value={i.submittedEur}
-                    onChange={(v) => updateInstitution(i.id, { submittedEur: v })}
-                    step="any"
-                  />
-                </td>
-                <td className="py-1 text-right">
-                  <NumberInput
-                    className="text-right"
-                    value={i.usedEur}
-                    onChange={(v) => updateInstitution(i.id, { usedEur: v })}
-                    step="any"
-                  />
-                </td>
-                <td className="py-1 text-right font-medium">{formatEur(remainingAllowance(i))}</td>
-                <td className="py-1 text-right">
-                  <button className="text-xs text-red-600 hover:underline" onClick={() => removeInstitution(i.id)}>
-                    remove
-                  </button>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-sm">
+            <thead>
+              <tr className="text-left text-slate-500">
+                <th className="py-1">Institution</th>
+                <th className="py-1 text-right">Submitted</th>
+                <th className="py-1 text-right">Used</th>
+                <th className="py-1 text-right">Remaining</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {institutions.map((i) => (
+                <tr key={i.id} className="border-t border-slate-100">
+                  <td className="py-1">
+                    <TextInput value={i.label} onChange={(e) => updateInstitution(i.id, { label: e.target.value })} />
+                  </td>
+                  <td className="py-1 text-right">
+                    <NumberInput
+                      className="text-right"
+                      value={i.submittedEur}
+                      onChange={(v) => updateInstitution(i.id, { submittedEur: v })}
+                      step="any"
+                    />
+                  </td>
+                  <td className="py-1 text-right">
+                    <NumberInput
+                      className="text-right"
+                      value={i.usedEur}
+                      onChange={(v) => updateInstitution(i.id, { usedEur: v })}
+                      step="any"
+                    />
+                  </td>
+                  <td className="py-1 text-right font-medium">{formatEur(remainingAllowance(i))}</td>
+                  <td className="py-1 text-right">
+                    <button className="text-xs text-red-600 hover:underline" onClick={() => handleRemoveInstitution(i.id, i.label)}>
+                      remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <div className="mt-3">
           <NewInstitutionForm onAdd={(label) => addInstitution({ label, submittedEur: 0, usedEur: 0 })} />
         </div>
@@ -151,47 +165,49 @@ export function AllowanceView() {
 
       <Card>
         <h2 className="mb-2 font-semibold text-slate-900">Cash balances</h2>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-slate-500">
-              <th className="py-1">Label</th>
-              <th className="py-1">Institution</th>
-              <th className="py-1 text-right">Amount</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {cashBalances.map((c) => (
-              <tr key={c.id} className="border-t border-slate-100">
-                <td className="py-1">
-                  <TextInput value={c.label} onChange={(e) => updateCashBalance(c.id, { label: e.target.value })} />
-                </td>
-                <td className="py-1">
-                  <Select value={c.institutionId} onChange={(e) => updateCashBalance(c.id, { institutionId: e.target.value })}>
-                    {institutions.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.label}
-                      </option>
-                    ))}
-                  </Select>
-                </td>
-                <td className="py-1 text-right">
-                  <NumberInput
-                    className="text-right"
-                    value={c.amountEur}
-                    onChange={(v) => updateCashBalance(c.id, { amountEur: v })}
-                    step="any"
-                  />
-                </td>
-                <td className="py-1 text-right">
-                  <button className="text-xs text-red-600 hover:underline" onClick={() => removeCashBalance(c.id)}>
-                    remove
-                  </button>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[420px] text-sm">
+            <thead>
+              <tr className="text-left text-slate-500">
+                <th className="py-1">Label</th>
+                <th className="py-1">Institution</th>
+                <th className="py-1 text-right">Amount</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {cashBalances.map((c) => (
+                <tr key={c.id} className="border-t border-slate-100">
+                  <td className="py-1">
+                    <TextInput value={c.label} onChange={(e) => updateCashBalance(c.id, { label: e.target.value })} />
+                  </td>
+                  <td className="py-1">
+                    <Select value={c.institutionId} onChange={(e) => updateCashBalance(c.id, { institutionId: e.target.value })}>
+                      {institutions.map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {i.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </td>
+                  <td className="py-1 text-right">
+                    <NumberInput
+                      className="text-right"
+                      value={c.amountEur}
+                      onChange={(v) => updateCashBalance(c.id, { amountEur: v })}
+                      step="any"
+                    />
+                  </td>
+                  <td className="py-1 text-right">
+                    <button className="text-xs text-red-600 hover:underline" onClick={() => removeCashBalance(c.id)}>
+                      remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {institutions.length === 0 ? (
           <p className="mt-3 text-xs text-slate-500">Add an institution above before adding cash balances.</p>
         ) : (

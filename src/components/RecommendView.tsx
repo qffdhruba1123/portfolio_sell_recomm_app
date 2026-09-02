@@ -71,28 +71,30 @@ function PlanCard({ title, plan, cashUsedEur }: { title: string; plan: SalePlan 
         {plan.institutionBreakdown.length > 0 && (
           <div className="border-t border-slate-200 pt-2">
             <p className="mb-1 text-xs font-medium text-slate-600">Per-institution tax breakdown</p>
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-slate-500">
-                  <th className="py-1">Institution</th>
-                  <th className="py-1 text-right">Stock pool</th>
-                  <th className="py-1 text-right">Fund pool</th>
-                  <th className="py-1 text-right">Allowance used</th>
-                  <th className="py-1 text-right">Tax</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.institutionBreakdown.map((b) => (
-                  <tr key={b.institutionId} className="border-t border-slate-100">
-                    <td className="py-1">{b.institutionLabel}</td>
-                    <td className="py-1 text-right">{formatEur(b.stockPoolEur)}</td>
-                    <td className="py-1 text-right">{formatEur(b.fundPoolEur)}</td>
-                    <td className="py-1 text-right">{formatEur(b.allowanceUsedEur)}</td>
-                    <td className="py-1 text-right font-medium">{formatEur(b.taxEur)}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[420px] text-xs">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="py-1">Institution</th>
+                    <th className="py-1 text-right">Stock pool</th>
+                    <th className="py-1 text-right">Fund pool</th>
+                    <th className="py-1 text-right">Allowance used</th>
+                    <th className="py-1 text-right">Tax</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {plan.institutionBreakdown.map((b) => (
+                    <tr key={b.institutionId} className="border-t border-slate-100">
+                      <td className="py-1">{b.institutionLabel}</td>
+                      <td className="py-1 text-right">{formatEur(b.stockPoolEur)}</td>
+                      <td className="py-1 text-right">{formatEur(b.fundPoolEur)}</td>
+                      <td className="py-1 text-right">{formatEur(b.allowanceUsedEur)}</td>
+                      <td className="py-1 text-right font-medium">{formatEur(b.taxEur)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

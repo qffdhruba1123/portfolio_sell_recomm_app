@@ -38,11 +38,11 @@ export function Dashboard({ onNavigate }: { onNavigate: (tab: string) => void })
 
       {hasNoData && (
         <Card className="border-slate-300 bg-slate-50">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <p className="text-sm text-slate-700">
               No holdings or cash entered yet. New here? The Guide tab walks through setup in a few short steps.
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="secondary" onClick={() => onNavigate('guide')}>
                 Read the guide
               </Button>

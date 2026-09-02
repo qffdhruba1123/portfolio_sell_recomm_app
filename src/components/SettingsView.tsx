@@ -2,13 +2,29 @@ import { useRef, useState } from 'react'
 import { usePortfolio } from '../state/PortfolioContext'
 import type { FilingStatus } from '../types'
 import { SPARERPAUSCHBETRAG } from '../types'
-import { Button, Card, Field, NumberInput, Select, TextInput } from './ui'
+import { getLivePrice } from '../lib/yahoo'
+import { Badge, Button, Card, Field, NumberInput, Select, TextInput } from './ui'
 
 export function SettingsView() {
   const { state, updateSettings, loadDemoData, clearAllData, exportJson, importJson, isDemo } = usePortfolio()
   const { settings } = state
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [proxyTest, setProxyTest] = useState<{ ok: boolean; message: string } | null>(null)
+  const [testingProxy, setTestingProxy] = useState(false)
+
+  async function handleTestProxy() {
+    setTestingProxy(true)
+    setProxyTest(null)
+    try {
+      const live = await getLivePrice('AAPL', settings.corsProxyPrefix)
+      setProxyTest({ ok: true, message: `Success — got a live AAPL quote of ${live.price.toFixed(2)} ${live.currency}.` })
+    } catch (err) {
+      setProxyTest({ ok: false, message: (err as Error).message })
+    } finally {
+      setTestingProxy(false)
+    }
+  }
 
   function handleExport() {
     const json = exportJson()
@@ -75,7 +91,14 @@ export function SettingsView() {
           <Button variant="secondary" onClick={loadDemoData}>
             Load demo data
           </Button>
-          <Button variant="danger" onClick={clearAllData}>
+          <Button
+            variant="danger"
+            onClick={() => {
+              if (confirm("Clear ALL data — holdings, cash, institutions, and settings? This can't be undone. Export a backup first if you're unsure.")) {
+                clearAllData()
+              }
+            }}
+          >
             Clear all data
           </Button>
         </div>
@@ -143,7 +166,14 @@ export function SettingsView() {
             onChange={(e) => updateSettings({ corsProxyPrefix: e.target.value })}
           />
         </Field>
-        <p className="mt-1 text-xs text-slate-500">
+        <div className="mt-2 flex items-center gap-2">
+          <Button variant="secondary" onClick={handleTestProxy} disabled={testingProxy}>
+            {testingProxy ? 'Testing…' : 'Test connection'}
+          </Button>
+          {proxyTest && <Badge tone={proxyTest.ok ? 'good' : 'bad'}>{proxyTest.ok ? 'working' : 'failed'}</Badge>}
+        </div>
+        {proxyTest && <p className={`mt-1 text-xs ${proxyTest.ok ? 'text-emerald-700' : 'text-red-600'}`}>{proxyTest.message}</p>}
+        <p className="mt-2 text-xs text-slate-500">
           Yahoo Finance's endpoints don't send CORS headers, so price lookups route through a proxy. The default,{' '}
           <code>auto</code>, tries a short built-in list of public proxies in order — public proxies are
           individually unreliable, so if one is down or rate-limited, it falls through to the next rather than

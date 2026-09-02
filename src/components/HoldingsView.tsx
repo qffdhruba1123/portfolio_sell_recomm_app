@@ -4,6 +4,7 @@ import type { SecurityType } from '../types'
 import { totalQuantity } from '../lib/recommend'
 import { formatEur } from '../lib/format'
 import { CSV_TEMPLATE_EXAMPLE_ROW, CSV_TEMPLATE_HEADER, type CsvImportSummary } from '../lib/csv'
+import { getHistoricalPriceEur } from '../lib/yahoo'
 import { Badge, Button, Card, Field, NumberInput, Select, TextInput } from './ui'
 
 function downloadCsvTemplate() {
@@ -142,13 +143,35 @@ function LotRow({ lot, onRemove }: { lot: { id: string; acquiredAt: string; quan
   )
 }
 
-function AddLotForm({ onAdd }: { onAdd: (acquiredAt: string, quantity: number, unitCostEur: number) => void }) {
+function AddLotForm({
+  identifier,
+  proxyPrefix,
+  onAdd,
+}: {
+  identifier: string
+  proxyPrefix: string
+  onAdd: (acquiredAt: string, quantity: number, unitCostEur: number) => void
+}) {
   const [acquiredAt, setAcquiredAt] = useState('')
   const [quantity, setQuantity] = useState(0)
   const [unitCostEur, setUnitCostEur] = useState(0)
+  const [fetching, setFetching] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+
+  async function handleFetchPrice() {
+    setFetching(true)
+    setFetchError(null)
+    try {
+      setUnitCostEur(await getHistoricalPriceEur(identifier, acquiredAt, proxyPrefix))
+    } catch (err) {
+      setFetchError((err as Error).message)
+    } finally {
+      setFetching(false)
+    }
+  }
 
   return (
-    <div className="mt-2 flex items-end gap-2">
+    <div className="mt-2 flex flex-wrap items-end gap-2">
       <Field label="Acquired">
         <TextInput type="date" value={acquiredAt} onChange={(e) => setAcquiredAt(e.target.value)} />
       </Field>
@@ -158,18 +181,22 @@ function AddLotForm({ onAdd }: { onAdd: (acquiredAt: string, quantity: number, u
       <Field label="Unit cost (EUR)">
         <NumberInput value={unitCostEur} onChange={setUnitCostEur} step="any" />
       </Field>
+      <Button variant="secondary" disabled={!acquiredAt || fetching} onClick={handleFetchPrice}>
+        {fetching ? 'Fetching…' : 'Fetch price for this date'}
+      </Button>
       <Button
-        variant="secondary"
         disabled={!acquiredAt || quantity <= 0}
         onClick={() => {
           onAdd(acquiredAt, quantity, unitCostEur)
           setAcquiredAt('')
           setQuantity(0)
           setUnitCostEur(0)
+          setFetchError(null)
         }}
       >
         Add lot
       </Button>
+      {fetchError && <p className="w-full text-xs text-red-600">{fetchError}</p>}
     </div>
   )
 }
@@ -194,7 +221,7 @@ export function HoldingsView() {
         const institution = state.institutions.find((i) => i.id === h.institutionId)
         return (
           <Card key={h.id}>
-            <div className="flex items-start justify-between">
+            <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-semibold text-slate-900">{h.displayName}</h3>
@@ -219,30 +246,41 @@ export function HoldingsView() {
                   />
                   %
                 </label>
-                <button className="text-xs text-red-600 hover:underline" onClick={() => removeHolding(h.id)}>
+                <button
+                  className="text-xs text-red-600 hover:underline"
+                  onClick={() => {
+                    if (confirm(`Remove "${h.displayName}" and all ${h.lots.length} lot(s)? This can't be undone.`)) removeHolding(h.id)
+                  }}
+                >
                   remove holding
                 </button>
               </div>
             </div>
 
-            <table className="mt-2 w-full text-xs">
-              <thead>
-                <tr className="text-left text-slate-500">
-                  <th className="py-1">Acquired</th>
-                  <th className="py-1 text-right">Qty</th>
-                  <th className="py-1 text-right">Unit cost</th>
-                  <th className="py-1 text-right">Cost basis</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {h.lots.map((lot) => (
-                  <LotRow key={lot.id} lot={lot} onRemove={() => removeLot(h.id, lot.id)} />
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="mt-2 w-full min-w-[420px] text-xs">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="py-1">Acquired</th>
+                    <th className="py-1 text-right">Qty</th>
+                    <th className="py-1 text-right">Unit cost</th>
+                    <th className="py-1 text-right">Cost basis</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {h.lots.map((lot) => (
+                    <LotRow key={lot.id} lot={lot} onRemove={() => removeLot(h.id, lot.id)} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-            <AddLotForm onAdd={(acquiredAt, quantity, unitCostEur) => addLot(h.id, { acquiredAt, quantity, unitCostEur })} />
+            <AddLotForm
+              identifier={h.identifier}
+              proxyPrefix={state.settings.corsProxyPrefix}
+              onAdd={(acquiredAt, quantity, unitCostEur) => addLot(h.id, { acquiredAt, quantity, unitCostEur })}
+            />
           </Card>
         )
       })}

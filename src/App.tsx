@@ -30,12 +30,12 @@ function AppShell() {
       <header className="border-b border-slate-200 bg-white px-4 py-3">
         <h1 className="text-lg font-semibold text-slate-900">Portfolio Sell-Recommendation Advisor</h1>
       </header>
-      <nav className="flex gap-1 border-b border-slate-200 bg-white px-4">
+      <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-4">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-3 py-2 text-sm font-medium ${
+            className={`flex-none whitespace-nowrap px-3 py-2 text-sm font-medium ${
               tab === t.id ? 'border-b-2 border-slate-900 text-slate-900' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
