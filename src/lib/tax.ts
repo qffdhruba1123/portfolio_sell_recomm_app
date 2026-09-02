@@ -47,14 +47,32 @@ export function poolFor(holding: Holding): TaxPool {
   return holding.securityType === 'STOCK' ? 'STOCK' : 'FUND'
 }
 
+/** Shares acquired on or after this date fall under Abgeltungssteuer; anything older is grandfathered out (Bestandsschutz). */
+export const BESTANDSSCHUTZ_CUTOFF = '2009-01-01'
+
+/**
+ * Bestandsschutz: shares acquired before 2009-01-01 are permanently outside the
+ * Abgeltungssteuer regime introduced that year — gains on them are tax-free, and
+ * (symmetrically) losses on them don't reduce tax elsewhere either, since they
+ * never enter the taxable pools at all. FIFO's oldest-first rule already
+ * consumes these lots before any newer one in a partial sale, so no separate
+ * "prefer exempt lots first" logic is needed here - it falls out for free.
+ */
+export function isBestandsschutzLot(lot: Lot): boolean {
+  return lot.acquiredAt < BESTANDSSCHUTZ_CUTOFF
+}
+
 export interface HoldingSaleResult {
   holdingId: string
   pool: TaxPool
   consumed: ConsumedChunk[]
   shortfallQuantity: number
   proceedsEur: number
+  /** Total gain/loss across all consumed lots, exempt portion included - for display only. */
   grossGainLossEur: number
-  /** Gross gain/loss after Teilfreistellung; this is what feeds the §20 EStG pools. */
+  /** Portion of grossGainLossEur from Bestandsschutz lots - permanently tax-free, never taxed, never usable to offset other gains. */
+  exemptGrossGainLossEur: number
+  /** Gross gain/loss after Teilfreistellung, from non-exempt lots only; this is what feeds the §20 EStG pools. */
   taxableGainLossEur: number
 }
 
@@ -68,6 +86,16 @@ export function computeHoldingSale(
   const costBasisEur = consumed.reduce((sum, c) => sum + c.costBasisEur, 0)
   const proceedsEur = quantitySold * sellPricePerUnitEur
   const grossGainLossEur = proceedsEur - costBasisEur
+
+  const exemptChunks = consumed.filter((c) => isBestandsschutzLot(c.lot))
+  const taxableChunks = consumed.filter((c) => !isBestandsschutzLot(c.lot))
+  const exemptGrossGainLossEur =
+    exemptChunks.reduce((sum, c) => sum + c.quantity, 0) * sellPricePerUnitEur -
+    exemptChunks.reduce((sum, c) => sum + c.costBasisEur, 0)
+  const taxableGrossGainLossEur =
+    taxableChunks.reduce((sum, c) => sum + c.quantity, 0) * sellPricePerUnitEur -
+    taxableChunks.reduce((sum, c) => sum + c.costBasisEur, 0)
+
   const rate = teilfreistellungRateFor(holding)
   return {
     holdingId: holding.id,
@@ -76,7 +104,8 @@ export function computeHoldingSale(
     shortfallQuantity,
     proceedsEur,
     grossGainLossEur,
-    taxableGainLossEur: applyTeilfreistellung(grossGainLossEur, rate),
+    exemptGrossGainLossEur,
+    taxableGainLossEur: applyTeilfreistellung(taxableGrossGainLossEur, rate),
   }
 }
 

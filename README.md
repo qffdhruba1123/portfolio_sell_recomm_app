@@ -4,10 +4,10 @@ A personal finance tool that gives **sell recommendations** for two situations �
 a sudden need for cash, or a retirement withdrawal — grounded in German
 capital-gains tax rules (Abgeltungssteuer, FIFO lot accounting, Teilfreistellung,
 the §20 EStG stock/fund loss-offset asymmetry, per-institution Freistellungsauftrag
-tracking) and transparent about the trade-off between minimizing tax and
-reducing concentration risk. It never executes a trade and never connects to
-any brokerage account — every recommendation is something you act on manually
-elsewhere.
+tracking, Bestandsschutz for pre-2009 lots) and transparent about the trade-off
+between minimizing tax and reducing concentration risk. It never executes a
+trade and never connects to any brokerage account — every recommendation is
+something you act on manually elsewhere.
 
 **This is not financial or tax advice.** It's educational, rules-based decision
 support. Consult a Steuerberater before acting on anything it shows you.
@@ -101,6 +101,27 @@ but removing a holding, an institution, or all data does ask for confirmation
 first, since those can't be undone. Removing an institution that a holding or
 cash balance still points at is blocked outright (with a message saying which
 ones) rather than silently leaving them pointing at nothing.
+
+## What the Recommend view surfaces beyond the raw numbers
+
+- **Bestandsschutz**: shares acquired before 2009-01-01 are grandfathered out
+  of Abgeltungssteuer entirely — gains on them are permanently tax-free, and
+  (symmetrically) losses on them don't reduce tax elsewhere either, since they
+  never enter the taxable pools. A line item's rationale says explicitly when
+  some or all of a sale falls under this.
+- **"Picked by both plans"** badge: when the same holding appears in both the
+  tax-optimized and risk-reduction plans, that's a stronger signal than either
+  ranking alone — shown as agreement between two transparent rankings, not a
+  blended score.
+- **Fractional-unit warning**: a partial sale can call for a non-whole
+  quantity (e.g. "36.91 units"); flagged since not every broker supports
+  fractional-unit orders.
+- **Stale-price warning**: if any holding in a plan is priced from a stale
+  (rate-limited or failed) quote, a banner says so before you act on the
+  numbers.
+- **Timing tip**: a plain-language note that splitting a non-urgent sale
+  across two calendar years uses two separate years' Sparerpauschbetrag —
+  context only, never applied automatically.
 
 ## Known simplifications (stated, not hidden)
 

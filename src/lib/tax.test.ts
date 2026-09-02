@@ -8,6 +8,7 @@ import {
   computeHoldingSale,
   consumeLotsFifo,
   effectiveTaxRate,
+  isBestandsschutzLot,
   netTaxPools,
   remainingAllowance,
   settleInstitutionTax,
@@ -104,6 +105,88 @@ describe('computeHoldingSale', () => {
     expect(result.grossGainLossEur).toBeCloseTo(300)
     expect(result.taxableGainLossEur).toBeCloseTo(210)
     expect(result.pool).toBe('FUND')
+  })
+
+  it('has zero exempt portion for an all-post-2009 sale (no behavior change from before Bestandsschutz existed)', () => {
+    const h = stock({ lots: [lot('a', '2020-01-01', 10, 20)] })
+    const result = computeHoldingSale(h, 10, 50)
+    expect(result.exemptGrossGainLossEur).toBe(0)
+    expect(result.taxableGainLossEur).toBeCloseTo(300)
+  })
+
+  it('Bestandsschutz: a pre-2009 gain is fully tax-free, not just Teilfreistellung-shielded', () => {
+    const h = stock({ lots: [lot('a', '2005-06-01', 10, 20)] })
+    const result = computeHoldingSale(h, 10, 100)
+    expect(result.grossGainLossEur).toBeCloseTo(800) // (100-20)*10
+    expect(result.exemptGrossGainLossEur).toBeCloseTo(800)
+    expect(result.taxableGainLossEur).toBe(0)
+  })
+
+  it('Bestandsschutz: a pre-2009 loss gives no tax benefit either - it never enters the taxable pool', () => {
+    const h = stock({ lots: [lot('a', '2005-06-01', 10, 50)] })
+    const result = computeHoldingSale(h, 10, 20)
+    expect(result.grossGainLossEur).toBeCloseTo(-300) // (20-50)*10
+    expect(result.exemptGrossGainLossEur).toBeCloseTo(-300)
+    expect(result.taxableGainLossEur).toBe(0)
+  })
+
+  it('boundary: a lot acquired exactly on 2009-01-01 is NOT exempt (cutoff is exclusive)', () => {
+    const h = stock({ lots: [lot('a', '2009-01-01', 10, 20)] })
+    const result = computeHoldingSale(h, 10, 50)
+    expect(result.exemptGrossGainLossEur).toBe(0)
+    expect(result.taxableGainLossEur).toBeCloseTo(300)
+  })
+
+  it('boundary: a lot acquired the day before the cutoff IS exempt', () => {
+    const h = stock({ lots: [lot('a', '2008-12-31', 10, 20)] })
+    const result = computeHoldingSale(h, 10, 50)
+    expect(result.exemptGrossGainLossEur).toBeCloseTo(300)
+    expect(result.taxableGainLossEur).toBe(0)
+  })
+
+  it('Bestandsschutz: a sale mixing an exempt lot and a taxable lot splits correctly, each computed from its own chunk', () => {
+    // FIFO consumes the pre-2009 lot (10 units) fully, then 5 of the post-2009 lot.
+    const h = stock({
+      lots: [lot('old', '2005-01-01', 10, 20), lot('new', '2021-01-01', 10, 60)],
+    })
+    const result = computeHoldingSale(h, 15, 100)
+    expect(result.consumed).toHaveLength(2)
+    // Exempt: (100-20)*10 = 800. Taxable: (100-60)*5 = 200.
+    expect(result.exemptGrossGainLossEur).toBeCloseTo(800)
+    expect(result.taxableGainLossEur).toBeCloseTo(200) // 0% Teilfreistellung for a stock
+    expect(result.grossGainLossEur).toBeCloseTo(1000) // 800 exempt + 200 taxable, for display
+  })
+
+  it('Bestandsschutz: the exempt and taxable portions of a mixed ETF sale both get Teilfreistellung applied only to the taxable side', () => {
+    const h = etf({
+      lots: [lot('old', '2005-01-01', 10, 20), lot('new', '2021-01-01', 10, 60)],
+    })
+    const result = computeHoldingSale(h, 15, 100)
+    // Exempt gross 800 stays untaxed regardless of Teilfreistellung. Taxable gross
+    // 200 gets the 30% ETF shield -> 140.
+    expect(result.exemptGrossGainLossEur).toBeCloseTo(800)
+    expect(result.taxableGainLossEur).toBeCloseTo(140)
+  })
+
+  it('Bestandsschutz: a fully pre-2009 position ranks as zero-tax-cost, same tier as a loss, for ranking purposes', () => {
+    // This mirrors how recommend.ts's standaloneEffectiveRate treats taxableGainLossEur <= 0.
+    const h = stock({ lots: [lot('a', '2000-01-01', 10, 5) ] })
+    const result = computeHoldingSale(h, 10, 500) // huge gain
+    expect(result.taxableGainLossEur).toBeLessThanOrEqual(0)
+  })
+})
+
+describe('isBestandsschutzLot', () => {
+  it('treats the cutoff date itself as not exempt', () => {
+    expect(isBestandsschutzLot(lot('a', '2009-01-01', 1, 1))).toBe(false)
+  })
+
+  it('treats the day before the cutoff as exempt', () => {
+    expect(isBestandsschutzLot(lot('a', '2008-12-31', 1, 1))).toBe(true)
+  })
+
+  it('treats a recent date as not exempt', () => {
+    expect(isBestandsschutzLot(lot('a', '2024-05-01', 1, 1))).toBe(false)
   })
 })
 

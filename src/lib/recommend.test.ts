@@ -102,6 +102,45 @@ describe('recommend — tax-optimized lens', () => {
   })
 })
 
+describe('recommend — Bestandsschutz (pre-2009 lots)', () => {
+  it('ranks a fully pre-2009 gain ahead of an equal post-2009 gain in the tax-optimized lens', () => {
+    const oldHolding = holding({
+      id: 'old',
+      lots: [{ id: 'l1', acquiredAt: '2005-01-01', quantity: 10, unitCostEur: 10 }],
+    })
+    const newHolding = holding({
+      id: 'new',
+      lots: [{ id: 'l2', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }],
+    })
+    const result = recommend({
+      amountNeededEur: 500,
+      holdings: [oldHolding, newHolding],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { old: 50, new: 50 }, // identical +400 gain on both
+    })
+    expect(result.taxOptimizedPlan?.lineItems[0].holdingId).toBe('old')
+  })
+
+  it('mentions Bestandsschutz in the rationale for a fully pre-2009 sale', () => {
+    const oldHolding = holding({
+      id: 'old',
+      lots: [{ id: 'l1', acquiredAt: '2005-01-01', quantity: 10, unitCostEur: 10 }],
+    })
+    const result = recommend({
+      amountNeededEur: 500,
+      holdings: [oldHolding],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { old: 50 },
+    })
+    expect(result.taxOptimizedPlan?.lineItems[0].rationale).toMatch(/Bestandsschutz/)
+    expect(result.taxOptimizedPlan?.lineItems[0].exemptGrossGainLossEur).toBeCloseTo(400)
+  })
+})
+
 describe('recommend — risk-reduction lens', () => {
   it('ranks stocks above funds and by concentration descending', () => {
     const smallStock = holding({
@@ -154,6 +193,84 @@ describe('concentrationPct and totalQuantity', () => {
     const prices = { a: 90, b: 10 } // a=900, b=100, total=1000
     expect(concentrationPct(a, [a, b], prices)).toBeCloseTo(0.9)
     expect(totalQuantity(a)).toBe(10)
+  })
+})
+
+describe('recommend — agreedByBothLenses', () => {
+  it('flags a holding picked by both lenses, and only that one', () => {
+    // "agreed" is both the biggest loss (tax-optimized picks it first) and the
+    // biggest concentration (risk-reduction picks it first too).
+    const agreed = holding({
+      id: 'agreed',
+      lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 100, unitCostEur: 100 }], // huge loss, huge position
+    })
+    const taxOnly = holding({
+      id: 'taxOnly',
+      lots: [{ id: 'l2', acquiredAt: '2020-01-01', quantity: 1, unitCostEur: 100 }], // tiny loss, tiny position
+    })
+    const result = recommend({
+      amountNeededEur: 1_000_000, // force both plans to need every holding
+      holdings: [agreed, taxOnly],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { agreed: 1, taxOnly: 1 },
+    })
+    const taxItem = result.taxOptimizedPlan!.lineItems.find((li) => li.holdingId === 'agreed')!
+    const riskItem = result.riskReductionPlan!.lineItems.find((li) => li.holdingId === 'agreed')!
+    expect(taxItem.agreedByBothLenses).toBe(true)
+    expect(riskItem.agreedByBothLenses).toBe(true)
+  })
+
+  it('does not flag a holding that only one lens needed to pick', () => {
+    const smallLoss = holding({
+      id: 'smallLoss',
+      lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 20 }],
+    })
+    const bigGainBigPosition = holding({
+      id: 'bigGain',
+      lots: [{ id: 'l2', acquiredAt: '2020-01-01', quantity: 1000, unitCostEur: 1 }],
+    })
+    // Amount needed is covered entirely by the small loss holding, so neither
+    // lens needs to touch the big-gain/big-concentration holding at all.
+    const result = recommend({
+      amountNeededEur: 50,
+      holdings: [smallLoss, bigGainBigPosition],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { smallLoss: 10, bigGain: 10 },
+    })
+    const taxItem = result.taxOptimizedPlan!.lineItems.find((li) => li.holdingId === 'smallLoss')!
+    expect(taxItem.agreedByBothLenses).toBe(false)
+  })
+})
+
+describe('recommend — isFractionalUnit', () => {
+  it('flags a partial sale that requires a non-whole quantity', () => {
+    const h = holding({ id: 'h1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 100, unitCostEur: 5 }] })
+    const result = recommend({
+      amountNeededEur: 233, // 233 / 10 = 23.3, not a whole number
+      holdings: [h],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { h1: 10 },
+    })
+    expect(result.taxOptimizedPlan?.lineItems[0].isFractionalUnit).toBe(true)
+  })
+
+  it('does not flag a full-position sale (whole quantity by construction)', () => {
+    const h = holding({ id: 'h1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 5 }] })
+    const result = recommend({
+      amountNeededEur: 100,
+      holdings: [h],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { h1: 10 },
+    })
+    expect(result.taxOptimizedPlan?.lineItems[0].isFractionalUnit).toBe(false)
   })
 })
 

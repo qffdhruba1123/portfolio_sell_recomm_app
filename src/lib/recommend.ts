@@ -30,12 +30,17 @@ export interface LineItem {
   institutionLabel: string
   quantitySold: number
   isFullPosition: boolean
+  /** True if quantitySold isn't a whole number - some brokers don't support fractional-unit orders. */
+  isFractionalUnit: boolean
   pricePerUnitEur: number
   grossProceedsEur: number
   grossGainLossEur: number
+  exemptGrossGainLossEur: number
   taxableGainLossEur: number
   concentrationPctBefore: number
   rationale: string
+  /** True if this same holding also appears in the other lens's plan - "sell this either way" signal. Set after both plans are built. */
+  agreedByBothLenses: boolean
 }
 
 export interface InstitutionBreakdown extends InstitutionTaxSummary {
@@ -68,14 +73,34 @@ function institutionLabel(institutions: Institution[], id: string): string {
   return institutions.find((i) => i.id === id)?.label ?? 'Unknown institution'
 }
 
-function taxRationale(grossGainLossEur: number, taxableGainLossEur: number, isEtf: boolean, institutionLabelText: string): string {
-  if (grossGainLossEur <= 0) {
-    return `Realizes a loss of ${formatEur(Math.abs(grossGainLossEur))} — no tax cost, and may reduce tax owed on other sales at ${institutionLabelText}.`
+function taxRationale(
+  grossGainLossEur: number,
+  exemptGrossGainLossEur: number,
+  taxableGainLossEur: number,
+  isEtf: boolean,
+  institutionLabelText: string,
+): string {
+  const taxableGrossPortion = grossGainLossEur - exemptGrossGainLossEur
+
+  if (exemptGrossGainLossEur !== 0 && Math.abs(taxableGrossPortion) < 0.005) {
+    // Every consumed lot was pre-2009 - the whole sale is Bestandsschutz-exempt.
+    return exemptGrossGainLossEur > 0
+      ? `Gain of ${formatEur(exemptGrossGainLossEur)} is fully tax-exempt — these shares were acquired before 2009-01-01 (Bestandsschutz), grandfathered out of Abgeltungssteuer entirely.`
+      : `Realizes a loss of ${formatEur(Math.abs(exemptGrossGainLossEur))} on pre-2009 shares (Bestandsschutz) — outside today's tax rules, so it doesn't reduce tax elsewhere either.`
+  }
+
+  const exemptNote =
+    exemptGrossGainLossEur !== 0
+      ? ` (${formatEur(Math.abs(exemptGrossGainLossEur))} of this is tax-exempt Bestandsschutz from pre-2009 lots)`
+      : ''
+
+  if (taxableGrossPortion <= 0) {
+    return `Realizes a loss of ${formatEur(Math.abs(taxableGrossPortion))}${exemptNote} — no tax cost, and may reduce tax owed on other sales at ${institutionLabelText}.`
   }
   if (isEtf) {
-    return `Gain of ${formatEur(grossGainLossEur)} (${formatEur(taxableGainLossEur)} after the 30% Teilfreistellung) — taxed via ${institutionLabelText}.`
+    return `Gain of ${formatEur(taxableGrossPortion)}${exemptNote} (${formatEur(taxableGainLossEur)} after the 30% Teilfreistellung) — taxed via ${institutionLabelText}.`
   }
-  return `Gain of ${formatEur(grossGainLossEur)}, fully taxable — individual stocks get no Teilfreistellung. Taxed via ${institutionLabelText}.`
+  return `Gain of ${formatEur(taxableGrossPortion)}${exemptNote}, fully taxable — individual stocks get no Teilfreistellung. Taxed via ${institutionLabelText}.`
 }
 
 function riskRationale(pctBefore: number, thresholdPct: number, isStock: boolean): string {
@@ -179,7 +204,7 @@ function buildPlan(
     const pctBefore = concentrationPct(holding, allHoldings, prices)
     const rationale =
       lens === 'tax'
-        ? taxRationale(sale.grossGainLossEur, sale.taxableGainLossEur, holding.securityType === 'ETF', instLabel)
+        ? taxRationale(sale.grossGainLossEur, sale.exemptGrossGainLossEur, sale.taxableGainLossEur, holding.securityType === 'ETF', instLabel)
         : riskRationale(pctBefore, settings.concentrationThresholdPct, holding.securityType === 'STOCK')
 
     lineItems.push({
@@ -189,12 +214,15 @@ function buildPlan(
       institutionLabel: instLabel,
       quantitySold,
       isFullPosition,
+      isFractionalUnit: Math.abs(quantitySold - Math.round(quantitySold)) > 1e-9,
       pricePerUnitEur: price,
       grossProceedsEur: sale.proceedsEur,
       grossGainLossEur: sale.grossGainLossEur,
+      exemptGrossGainLossEur: sale.exemptGrossGainLossEur,
       taxableGainLossEur: sale.taxableGainLossEur,
       concentrationPctBefore: pctBefore,
       rationale,
+      agreedByBothLenses: false,
     })
   }
 
@@ -305,6 +333,13 @@ export function recommend(input: RecommendInput): RecommendationResult {
 
   const taxOptimizedPlan = buildPlan('tax', chosenTax, shortfallTax, holdings, prices, institutions, settings)
   const riskReductionPlan = buildPlan('risk', chosenRisk, shortfallRisk, holdings, prices, institutions, settings)
+
+  // A holding picked by both lenses is a "sell this either way" signal, worth
+  // surfacing without collapsing the two rankings into one blended score.
+  const taxIds = new Set(taxOptimizedPlan.lineItems.map((li) => li.holdingId))
+  const riskIds = new Set(riskReductionPlan.lineItems.map((li) => li.holdingId))
+  for (const li of taxOptimizedPlan.lineItems) li.agreedByBothLenses = riskIds.has(li.holdingId)
+  for (const li of riskReductionPlan.lineItems) li.agreedByBothLenses = taxIds.has(li.holdingId)
 
   return {
     amountNeededEur,

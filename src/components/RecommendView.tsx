@@ -4,7 +4,17 @@ import { recommend, retirementReference, totalHoldingsValueEur, type SalePlan } 
 import { formatEur } from '../lib/format'
 import { Badge, Button, Card, NumberInput } from './ui'
 
-function PlanCard({ title, plan, cashUsedEur }: { title: string; plan: SalePlan | null; cashUsedEur: number }) {
+function PlanCard({
+  title,
+  plan,
+  cashUsedEur,
+  stalePriceHoldingIds,
+}: {
+  title: string
+  plan: SalePlan | null
+  cashUsedEur: number
+  stalePriceHoldingIds: Set<string>
+}) {
   if (!plan) {
     return (
       <Card>
@@ -32,7 +42,18 @@ function PlanCard({ title, plan, cashUsedEur }: { title: string; plan: SalePlan 
                 </span>
                 <span className="font-medium">{formatEur(li.grossProceedsEur)}</span>
               </div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {li.agreedByBothLenses && <Badge tone="good">picked by both plans</Badge>}
+                {stalePriceHoldingIds.has(li.holdingId) && <Badge tone="warn">stale price</Badge>}
+                {li.isFractionalUnit && <Badge tone="warn">fractional units</Badge>}
+              </div>
               <p className="mt-1 text-xs text-slate-600">{li.rationale}</p>
+              {li.isFractionalUnit && (
+                <p className="mt-1 text-xs text-amber-700">
+                  Requires selling a fractional number of units — not every broker supports this; round up to the
+                  next whole unit if yours doesn't.
+                </p>
+              )}
             </li>
           ))}
         </ul>
@@ -136,6 +157,15 @@ export function RecommendView() {
   )
   const retirementRef = retirementReference(totalPortfolioValueEur)
 
+  const stalePriceHoldingIds = useMemo(
+    () => new Set(Object.entries(prices).filter(([, info]) => info.stale).map(([id]) => id)),
+    [prices],
+  )
+  const plansUseStalePrice = [...(result.taxOptimizedPlan?.lineItems ?? []), ...(result.riskReductionPlan?.lineItems ?? [])].some(
+    (li) => stalePriceHoldingIds.has(li.holdingId),
+  )
+  const hasSalePlan = (result.taxOptimizedPlan?.lineItems.length ?? 0) > 0 || (result.riskReductionPlan?.lineItems.length ?? 0) > 0
+
   return (
     <div className="space-y-4">
       <Card>
@@ -182,15 +212,36 @@ export function RecommendView() {
         </p>
       </Card>
 
+      {plansUseStalePrice && (
+        <Card className="border-amber-200 bg-amber-50">
+          <p className="text-sm text-amber-900">
+            <Badge tone="warn">stale price</Badge> At least one holding in these plans is priced from a stale (rate-
+            limited or failed) quote — the tax and proceeds estimates below may be off. Refresh prices from the
+            Holdings tab before acting on this.
+          </p>
+        </Card>
+      )}
+
       {result.comparisonCallout && (
         <Card className="border-slate-300 bg-slate-50">
           <p className="text-sm text-slate-700">{result.comparisonCallout}</p>
         </Card>
       )}
 
+      {hasSalePlan && mode === 'cash' && (
+        <Card className="border-slate-300 bg-slate-50">
+          <p className="text-sm text-slate-700">
+            <strong>Timing tip:</strong> if this isn't urgent, splitting the sale across two calendar years (e.g.
+            some in late December, the rest in early January) uses two separate years' Sparerpauschbetrag instead of
+            one — a well-known way to reduce or eliminate the tax on a sale like this. Context only; the amount above
+            is treated as needed now.
+          </p>
+        </Card>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
-        <PlanCard title="Tax-optimized" plan={result.taxOptimizedPlan} cashUsedEur={result.cashUsedEur} />
-        <PlanCard title="Risk-reduction" plan={result.riskReductionPlan} cashUsedEur={result.cashUsedEur} />
+        <PlanCard title="Tax-optimized" plan={result.taxOptimizedPlan} cashUsedEur={result.cashUsedEur} stalePriceHoldingIds={stalePriceHoldingIds} />
+        <PlanCard title="Risk-reduction" plan={result.riskReductionPlan} cashUsedEur={result.cashUsedEur} stalePriceHoldingIds={stalePriceHoldingIds} />
       </div>
 
       <p className="text-xs text-slate-400">
