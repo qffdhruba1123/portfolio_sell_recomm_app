@@ -15,11 +15,51 @@ const YAHOO_HOST = 'https://query1.finance.yahoo.com'
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 const PRICE_CACHE_TTL_MS = 45_000
 const EU_SUFFIXES = ['SG', 'DE', 'F', 'MU', 'MI']
+/** Native fetch() has no built-in timeout - a proxy that hangs (connects but never responds, no error) would otherwise block the whole chain forever. */
+const PROXY_TIMEOUT_MS = 10_000
 
-export const DEFAULT_PROXY_CHAIN = [
-  'https://corsproxy.io/?url=',
-  'https://api.allorigins.win/raw?url=',
-  'https://api.codetabs.com/v1/proxy?quest=',
+/**
+ * Times out the *entire* attempt, including reading the response body - a
+ * proxy can send headers promptly and then stream the body arbitrarily slowly
+ * (or never finish it), which a timeout on the initial fetch() promise alone
+ * wouldn't catch, since that promise already resolved once headers arrived.
+ */
+async function fetchTextWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<{ status: number; ok: boolean; text: string }> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const attempt = (async () => {
+    const res = await fetch(url, { ...init, signal: controller.signal })
+    const text = await res.text()
+    return { status: res.status, ok: res.ok, text }
+  })()
+  try {
+    return await attempt
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+interface ProxyDefinition {
+  buildUrl: (target: string) => string
+  /** Strips a non-JSON wrapper some proxies add around the raw response body. */
+  extractBody?: (raw: string) => string
+}
+
+/**
+ * r.jina.ai is a "web reader" service, not a dedicated CORS proxy - it wraps the
+ * response in a text preamble, stripped below by taking everything from the
+ * first '{'. It's listed first because it's the only one of these four
+ * confirmed actually working in production as of this writing (reflected
+ * Access-Control-Allow-Origin, verified against a real cross-origin request);
+ * corsproxy.io was returning 403 and allorigins.win/codetabs.com were both
+ * returning a bare 522 with no CORS headers at all. Re-verify before trusting
+ * any of these blindly — free proxies come and go.
+ */
+const DEFAULT_PROXY_CHAIN: readonly ProxyDefinition[] = [
+  { buildUrl: (t) => `https://r.jina.ai/${t}`, extractBody: (raw) => raw.slice(raw.indexOf('{')) },
+  { buildUrl: (t) => `https://corsproxy.io/?url=${encodeURIComponent(t)}` },
+  { buildUrl: (t) => `https://api.allorigins.win/raw?url=${encodeURIComponent(t)}` },
+  { buildUrl: (t) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(t)}` },
 ]
 
 export class YahooRateLimitError extends Error {
@@ -28,21 +68,23 @@ export class YahooRateLimitError extends Error {
   }
 }
 
-function buildUrl(proxyPrefix: string, path: string): string {
-  const target = `${YAHOO_HOST}${path}`
-  return `${proxyPrefix}${encodeURIComponent(target)}`
-}
-
 async function fetchYahoo(proxyPrefix: string, path: string): Promise<any> {
-  const prefixes = proxyPrefix === AUTO_PROXY ? DEFAULT_PROXY_CHAIN : [proxyPrefix]
+  const target = `${YAHOO_HOST}${path}`
+  const definitions: readonly ProxyDefinition[] =
+    proxyPrefix === AUTO_PROXY ? DEFAULT_PROXY_CHAIN : [{ buildUrl: (t) => `${proxyPrefix}${encodeURIComponent(t)}` }]
+
   let lastStatus: number | null = null
   let lastError: unknown = null
 
-  for (const prefix of prefixes) {
+  for (const def of definitions) {
     try {
-      const res = await fetch(buildUrl(prefix, path), { headers: { 'User-Agent': USER_AGENT } })
-      if (res.ok) return await res.json()
-      lastStatus = res.status
+      const { status, ok, text } = await fetchTextWithTimeout(
+        def.buildUrl(target),
+        { headers: { 'User-Agent': USER_AGENT } },
+        PROXY_TIMEOUT_MS,
+      )
+      if (ok) return JSON.parse(def.extractBody ? def.extractBody(text) : text)
+      lastStatus = status
     } catch (err) {
       lastError = err
     }
@@ -204,12 +246,27 @@ export interface ResolvedSymbol {
  * conversion. Cached indefinitely once found — re-resolving on every load is what
  * trips Yahoo's rate limit.
  */
+/** Matches an identifier that already looks exchange-qualified, e.g. "BAS.DE" or "VWCE.DE". */
+const ALREADY_SUFFIXED = /\.[A-Za-z]{1,4}$/
+
 export async function resolveSymbol(identifier: string, proxyPrefix: string): Promise<ResolvedSymbol> {
   const cache = loadSymbolCache()
   const cached = cache[identifier]
   if (cached) {
     const live = await getLivePrice(cached.symbol, proxyPrefix)
     return { symbol: cached.symbol, currency: live.currency, price: live.price, viaEuGuess: false }
+  }
+
+  // Already exchange-qualified - stacking another EU suffix onto it (e.g.
+  // "BAS.DE.SG") makes no sense, so try it directly before guessing/searching.
+  if (ALREADY_SUFFIXED.test(identifier)) {
+    try {
+      const direct = await getLivePrice(identifier, proxyPrefix)
+      saveSymbolCacheEntry(identifier, { symbol: identifier, currency: direct.currency })
+      return { symbol: identifier, currency: direct.currency, price: direct.price, viaEuGuess: false }
+    } catch {
+      // Not resolvable as-is - fall through to the guess/search path below.
+    }
   }
 
   const euGuessResults = await Promise.allSettled(
