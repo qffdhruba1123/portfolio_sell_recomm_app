@@ -6,6 +6,7 @@ import { buildDemoState, isDemoHoldingId } from '../lib/demoData'
 import { getFxRate, resolveSymbol, YahooRateLimitError } from '../lib/yahoo'
 import { uid } from '../lib/format'
 import { buildCsvImportPlan, type CsvImportSummary, parseCsvRows } from '../lib/csv'
+import { computeExecutionUpdates, type SalePlan } from '../lib/recommend'
 
 export interface PriceInfo {
   price: number
@@ -64,6 +65,7 @@ interface PortfolioContextValue {
   exportJson: () => string
   importJson: (json: string) => void
   importHoldingsCsv: (csvText: string) => CsvImportSummary
+  executePlan: (plan: SalePlan) => void
 
   refreshPrices: () => Promise<void>
 }
@@ -251,6 +253,40 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
     [state.holdings, state.institutions],
   )
 
+  const executePlan = useCallback(
+    (plan: SalePlan) => {
+      const updates = computeExecutionUpdates(plan, state.holdings)
+      const lotUpdateByHoldingId = new Map(updates.lotUpdates.map((u) => [u.holdingId, u]))
+      const institutionUpdateById = new Map(updates.institutionUpdates.map((u) => [u.institutionId, u]))
+
+      setState((s) => ({
+        ...s,
+        holdings: s.holdings.map((h) => {
+          const lotUpdate = lotUpdateByHoldingId.get(h.id)
+          if (!lotUpdate) return h
+          const lots = h.lots
+            .filter((l) => !lotUpdate.lotIdsToRemove.includes(l.id))
+            .map((l) => {
+              const qtyUpdate = lotUpdate.lotQuantityUpdates.find((u) => u.lotId === l.id)
+              return qtyUpdate ? { ...l, quantity: qtyUpdate.newQuantity } : l
+            })
+          return { ...h, lots }
+        }),
+        institutions: s.institutions.map((i) => {
+          const institutionUpdate = institutionUpdateById.get(i.id)
+          if (!institutionUpdate) return i
+          return {
+            ...i,
+            usedEur: i.usedEur + institutionUpdate.usedEurDelta,
+            lossPotEquitiesEur: institutionUpdate.newLossPotEquitiesEur,
+            lossPotGeneralEur: institutionUpdate.newLossPotGeneralEur,
+          }
+        }),
+      }))
+    },
+    [state.holdings],
+  )
+
   const value: PortfolioContextValue = {
     state,
     prices,
@@ -274,6 +310,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
     exportJson,
     importJson,
     importHoldingsCsv,
+    executePlan,
     refreshPrices,
   }
 

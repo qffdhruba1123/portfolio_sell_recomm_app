@@ -172,6 +172,31 @@ Recommend view has two ways to take it with you:
   every line item's rationale, totals, and the disclaimer) on your clipboard
   — useful for pasting into an email to a Steuerberater or into your own notes.
 
+## Keeping your records in sync after you actually sell
+
+Each plan has a **"Mark this plan as executed"** button. It never places a
+trade — there is no brokerage connection anywhere in this app — it only
+updates your *own* records here, exactly as if you'd re-derived and re-typed
+these numbers by hand after actually selling at your broker: it consumes the
+same FIFO lots the plan already computed (removing a fully-sold lot,
+reducing a partially-sold one), adds each affected institution's allowance
+used, and replaces its loss pots with the plan's own projected after-values.
+Use it only once you've actually executed the sale elsewhere. It's a real
+mutation, so it asks for confirmation first, and — like every other change in
+this app — it's undoable only via your last JSON export.
+
+## Two things the Dashboard watches without you asking
+
+- **Tax position if sold today**: your portfolio's total unrealized
+  gain/loss at current prices, how much of it is permanently Bestandsschutz-
+  exempt, and the estimated tax if you liquidated everything right now
+  (using the same per-institution netting, allowance, and loss-pot logic as
+  an actual plan) — a standing exposure snapshot, not a recommendation.
+- **Tax-loss harvesting opportunities**: holdings sitting on a real
+  unrealized loss right now, independent of any cash need — realizing one
+  banks a loss pot that offsets a gain realized later this year. Bestandsschutz
+  losses are excluded, since those provide no tax benefit to harvest.
+
 ## Basic data-entry guardrails
 
 Numeric fields that represent real-world non-negative quantities (lot

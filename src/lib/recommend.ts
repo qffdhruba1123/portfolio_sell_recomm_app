@@ -2,6 +2,7 @@ import { type CashBalance, type Holding, type Institution, type Settings } from 
 import { formatEur, formatPct } from './format'
 import {
   computeHoldingSale,
+  consumeLotsFifo,
   type InstitutionTaxSummary,
   remainingAllowance,
   settleInstitutionTax,
@@ -443,4 +444,159 @@ export function buildRecommendationSummaryText(result: RecommendationResult, gen
   lines.push('Not financial or tax advice — educational, rules-based decision support only. Consult a Steuerberater before acting on this.')
 
   return lines.join('\n')
+}
+
+export interface LiquidationSummary {
+  totalGrossGainLossEur: number
+  /** Portion of the gross figure that's Bestandsschutz-exempt (pre-2009 lots) - permanently tax-free either way. */
+  totalExemptGainLossEur: number
+  /** Post-Teilfreistellung, pre-netting - the raw input to each institution's pool, summed across all institutions. */
+  totalTaxableGainLossEur: number
+  estimatedTotalTaxEur: number
+  institutionBreakdown: InstitutionBreakdown[]
+  holdingsExcludedNoPrice: Holding[]
+}
+
+/**
+ * What tax would be owed if every holding were sold today, in full - not a
+ * recommendation (there's no cash need driving this), just a standing
+ * "what's my current tax exposure" figure for the Dashboard. Reuses the same
+ * per-institution netting (including loss-pot carry-ins) as an actual plan.
+ */
+export function computeFullLiquidationSummary(
+  holdings: Holding[],
+  prices: PriceMap,
+  institutions: Institution[],
+  settings: Settings,
+): LiquidationSummary {
+  const holdingsExcludedNoPrice = holdings.filter((h) => prices[h.id] == null && totalQuantity(h) > 0)
+  const eligible = holdings.filter((h) => prices[h.id] != null && totalQuantity(h) > 0)
+
+  const poolsByInstitution: Record<string, { stock: number; fund: number }> = {}
+  let totalGrossGainLossEur = 0
+  let totalExemptGainLossEur = 0
+  let totalTaxableGainLossEur = 0
+
+  for (const h of eligible) {
+    const sale = computeHoldingSale(h, totalQuantity(h), prices[h.id])
+    totalGrossGainLossEur += sale.grossGainLossEur
+    totalExemptGainLossEur += sale.exemptGrossGainLossEur
+    totalTaxableGainLossEur += sale.taxableGainLossEur
+    const pools = (poolsByInstitution[h.institutionId] ??= { stock: 0, fund: 0 })
+    if (sale.pool === 'STOCK') pools.stock += sale.taxableGainLossEur
+    else pools.fund += sale.taxableGainLossEur
+  }
+
+  const institutionBreakdown: InstitutionBreakdown[] = Object.entries(poolsByInstitution).map(([institutionId, pools]) => {
+    const institution = institutions.find((i) => i.id === institutionId)
+    const remaining = institution ? remainingAllowance(institution) : 0
+    const summary = settleInstitutionTax(institutionId, pools.stock, pools.fund, remaining, settings, institution)
+    return { ...summary, institutionLabel: institutionLabel(institutions, institutionId) }
+  })
+
+  const estimatedTotalTaxEur = institutionBreakdown.reduce((sum, b) => sum + b.taxEur, 0)
+
+  return {
+    totalGrossGainLossEur,
+    totalExemptGainLossEur,
+    totalTaxableGainLossEur,
+    estimatedTotalTaxEur,
+    institutionBreakdown,
+    holdingsExcludedNoPrice,
+  }
+}
+
+export interface HarvestingOpportunity {
+  holdingId: string
+  displayName: string
+  institutionLabel: string
+  taxableLossEur: number // positive number - the size of the usable loss
+}
+
+/**
+ * Holdings with a real, usable unrealized loss right now - independent of
+ * any cash need. Realizing one of these banks a loss pot that offsets a
+ * gain realized later this year, the same "harvest losses before they
+ * might recover" idea real investors act on near year-end. Deliberately
+ * excludes losses on Bestandsschutz (pre-2009) lots, since those are
+ * outside the tax regime entirely and provide no offsetting benefit -
+ * "harvesting" one would be pointless.
+ */
+export function findTaxLossHarvestingOpportunities(
+  holdings: Holding[],
+  prices: PriceMap,
+  institutions: Institution[],
+): HarvestingOpportunity[] {
+  const opportunities: HarvestingOpportunity[] = []
+  for (const h of holdings) {
+    if (prices[h.id] == null || totalQuantity(h) <= 0) continue
+    const sale = computeHoldingSale(h, totalQuantity(h), prices[h.id])
+    if (sale.taxableGainLossEur < 0) {
+      opportunities.push({
+        holdingId: h.id,
+        displayName: h.displayName,
+        institutionLabel: institutionLabel(institutions, h.institutionId),
+        taxableLossEur: -sale.taxableGainLossEur,
+      })
+    }
+  }
+  return opportunities.sort((a, b) => b.taxableLossEur - a.taxableLossEur)
+}
+
+export interface LotConsumptionUpdate {
+  holdingId: string
+  /** Lots fully consumed by this plan - remove entirely. */
+  lotIdsToRemove: string[]
+  /** Lots only partially consumed - set to this new (reduced) quantity. */
+  lotQuantityUpdates: { lotId: string; newQuantity: number }[]
+}
+
+export interface InstitutionExecutionUpdate {
+  institutionId: string
+  /** Add this to the institution's current usedEur. */
+  usedEurDelta: number
+  /** Replace the institution's loss pots with these - the exact "after" values the plan already computed. */
+  newLossPotEquitiesEur: number
+  newLossPotGeneralEur: number
+}
+
+export interface PlanExecutionUpdates {
+  lotUpdates: LotConsumptionUpdate[]
+  institutionUpdates: InstitutionExecutionUpdate[]
+}
+
+/**
+ * Derives the state changes that "I actually executed this plan" implies -
+ * consuming the same FIFO lots the plan itself computed, and carrying each
+ * institution's allowance usage and loss pots forward to what the plan
+ * already predicted they'd become. Recomputes FIFO consumption from the
+ * plan's own quantitySold rather than storing it on the plan, so it's exact
+ * as long as the holding's lots haven't changed since the plan was shown -
+ * true for the normal "see a recommendation, act on it" flow.
+ */
+export function computeExecutionUpdates(plan: SalePlan, holdings: Holding[]): PlanExecutionUpdates {
+  const lotUpdates: LotConsumptionUpdate[] = []
+
+  for (const li of plan.lineItems) {
+    const holding = holdings.find((h) => h.id === li.holdingId)
+    if (!holding) continue
+    const { consumed } = consumeLotsFifo(holding.lots, li.quantitySold)
+    const lotIdsToRemove: string[] = []
+    const lotQuantityUpdates: { lotId: string; newQuantity: number }[] = []
+    for (const chunk of consumed) {
+      const newQuantity = chunk.lot.quantity - chunk.quantity
+      if (newQuantity <= 1e-9) lotIdsToRemove.push(chunk.lot.id)
+      else lotQuantityUpdates.push({ lotId: chunk.lot.id, newQuantity })
+    }
+    lotUpdates.push({ holdingId: holding.id, lotIdsToRemove, lotQuantityUpdates })
+  }
+
+  const institutionUpdates: InstitutionExecutionUpdate[] = plan.institutionBreakdown.map((b) => ({
+    institutionId: b.institutionId,
+    usedEurDelta: b.allowanceUsedEur,
+    newLossPotEquitiesEur: b.projectedRemainingLossPots.remainingEquityLossPotEur,
+    newLossPotGeneralEur: b.projectedRemainingLossPots.remainingGeneralLossPotEur,
+  }))
+
+  return { lotUpdates, institutionUpdates }
 }

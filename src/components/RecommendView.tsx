@@ -15,6 +15,9 @@ function PlanCard({
   cashUsedEur: number
   stalePriceHoldingIds: Set<string>
 }) {
+  const { executePlan } = usePortfolio()
+  const [executed, setExecuted] = useState(false)
+
   if (!plan) {
     return (
       <Card>
@@ -147,6 +150,34 @@ function PlanCard({
             </div>
           </div>
         )}
+
+        <div className="border-t border-slate-200 pt-2">
+          {executed ? (
+            <p className="text-sm text-emerald-700">
+              ✓ Marked as executed — holdings, allowance used, and loss pots updated to match.
+            </p>
+          ) : (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                if (
+                  confirm(
+                    "Mark this plan as executed? This updates your holdings' lots, each institution's allowance used, and loss pot balances to reflect the sale — as if you'd re-entered them by hand after actually selling. Export a backup first if you're unsure.",
+                  )
+                ) {
+                  executePlan(plan)
+                  setExecuted(true)
+                }
+              }}
+            >
+              Mark this plan as executed
+            </Button>
+          )}
+          <p className="mt-1 text-xs text-slate-500">
+            Only updates your own records here — never places a trade. Use this after you've actually sold these
+            holdings at your broker.
+          </p>
+        </div>
       </div>
     </Card>
   )
@@ -292,8 +323,8 @@ export function RecommendView() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <PlanCard title="Tax-optimized" plan={result.taxOptimizedPlan} cashUsedEur={result.cashUsedEur} stalePriceHoldingIds={stalePriceHoldingIds} />
-        <PlanCard title="Risk-reduction" plan={result.riskReductionPlan} cashUsedEur={result.cashUsedEur} stalePriceHoldingIds={stalePriceHoldingIds} />
+        <PlanCard key={`tax-${amount}`} title="Tax-optimized" plan={result.taxOptimizedPlan} cashUsedEur={result.cashUsedEur} stalePriceHoldingIds={stalePriceHoldingIds} />
+        <PlanCard key={`risk-${amount}`} title="Risk-reduction" plan={result.riskReductionPlan} cashUsedEur={result.cashUsedEur} stalePriceHoldingIds={stalePriceHoldingIds} />
       </div>
 
       <p className="text-xs text-slate-400">

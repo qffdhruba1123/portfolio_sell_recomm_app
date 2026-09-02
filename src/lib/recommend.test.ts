@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { CashBalance, Holding, Institution } from '../types'
 import { defaultSettings } from '../types'
-import { buildRecommendationSummaryText, concentrationPct, recommend, retirementReference, totalQuantity } from './recommend'
+import {
+  buildRecommendationSummaryText,
+  computeExecutionUpdates,
+  computeFullLiquidationSummary,
+  concentrationPct,
+  findTaxLossHarvestingOpportunities,
+  recommend,
+  retirementReference,
+  totalQuantity,
+} from './recommend'
 
 const institutions: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 1000, usedEur: 0 }]
 
@@ -475,5 +484,188 @@ describe('buildRecommendationSummaryText', () => {
     const text = buildRecommendationSummaryText(result)
     expect(text).toContain('No Price Co')
     expect(text).toContain('Manual review needed')
+  })
+})
+
+describe('computeFullLiquidationSummary', () => {
+  it('sums gross, exempt, and taxable gain/loss across all priced holdings', () => {
+    const gain = holding({ id: 'gain', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }] }) // +400
+    const loss = holding({ id: 'loss', lots: [{ id: 'l2', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 100 }] }) // -500
+    const summary = computeFullLiquidationSummary([gain, loss], { gain: 50, loss: 50 }, institutions, defaultSettings())
+    expect(summary.totalGrossGainLossEur).toBeCloseTo(-100) // 400 - 500
+    expect(summary.totalExemptGainLossEur).toBe(0)
+    expect(summary.totalTaxableGainLossEur).toBeCloseTo(-100)
+  })
+
+  it('applies per-institution netting and loss-pot carry-in, same as an actual plan', () => {
+    const withLossPot: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 0, usedEur: 0, lossPotEquitiesEur: 1000 }]
+    const h = holding({ id: 'h1', institutionId: 'inst1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }] }) // +400
+    const summary = computeFullLiquidationSummary([h], { h1: 50 }, withLossPot, defaultSettings())
+    expect(summary.estimatedTotalTaxEur).toBe(0) // fully absorbed by the loss pot
+    expect(summary.institutionBreakdown[0].projectedRemainingLossPots.remainingEquityLossPotEur).toBe(600)
+  })
+
+  it('excludes holdings with no fetchable price rather than guessing', () => {
+    const priced = holding({ id: 'priced', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 5 }] })
+    const unpriced = holding({ id: 'unpriced', lots: [{ id: 'l2', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 5 }] })
+    const summary = computeFullLiquidationSummary([priced, unpriced], { priced: 10 }, institutions, defaultSettings())
+    expect(summary.holdingsExcludedNoPrice.map((h) => h.id)).toEqual(['unpriced'])
+  })
+
+  it('returns zero across the board for an empty portfolio', () => {
+    const summary = computeFullLiquidationSummary([], {}, institutions, defaultSettings())
+    expect(summary.totalGrossGainLossEur).toBe(0)
+    expect(summary.estimatedTotalTaxEur).toBe(0)
+    expect(summary.institutionBreakdown).toEqual([])
+  })
+})
+
+describe('findTaxLossHarvestingOpportunities', () => {
+  it('flags a holding with a real unrealized loss', () => {
+    const loss = holding({ id: 'loss', displayName: 'Loser Co', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 100 }] }) // -500
+    const opportunities = findTaxLossHarvestingOpportunities([loss], { loss: 50 }, institutions)
+    expect(opportunities).toHaveLength(1)
+    expect(opportunities[0].displayName).toBe('Loser Co')
+    expect(opportunities[0].taxableLossEur).toBeCloseTo(500)
+  })
+
+  it('does not flag a holding with an unrealized gain', () => {
+    const gain = holding({ id: 'gain', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }] })
+    expect(findTaxLossHarvestingOpportunities([gain], { gain: 50 }, institutions)).toEqual([])
+  })
+
+  it('excludes a Bestandsschutz (pre-2009) loss, since it provides no tax benefit to harvest', () => {
+    const oldLoss = holding({ id: 'old', lots: [{ id: 'l1', acquiredAt: '2005-01-01', quantity: 10, unitCostEur: 100 }] }) // -500, but exempt
+    expect(findTaxLossHarvestingOpportunities([oldLoss], { old: 50 }, institutions)).toEqual([])
+  })
+
+  it('sorts opportunities by loss size descending', () => {
+    const smallLoss = holding({ id: 'small', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 20 }] }) // -100
+    const bigLoss = holding({ id: 'big', lots: [{ id: 'l2', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 100 }] }) // -500
+    const opportunities = findTaxLossHarvestingOpportunities([smallLoss, bigLoss], { small: 10, big: 50 }, institutions)
+    expect(opportunities.map((o) => o.holdingId)).toEqual(['big', 'small'])
+  })
+
+  it('excludes a holding with no fetchable price', () => {
+    const unpriced = holding({ id: 'unpriced', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 100 }] })
+    expect(findTaxLossHarvestingOpportunities([unpriced], {}, institutions)).toEqual([])
+  })
+})
+
+describe('computeExecutionUpdates', () => {
+  it('removes every lot fully consumed by a full-position sale', () => {
+    const h = holding({
+      id: 'h1',
+      lots: [
+        { id: 'l1', acquiredAt: '2018-01-01', quantity: 5, unitCostEur: 10 },
+        { id: 'l2', acquiredAt: '2020-01-01', quantity: 5, unitCostEur: 20 },
+      ],
+    })
+    const result = recommend({
+      amountNeededEur: 1000,
+      holdings: [h],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { h1: 100 }, // full position = 10 * 100 = 1000, exactly covers it
+    })
+    const plan = result.taxOptimizedPlan!
+    expect(plan.lineItems[0].isFullPosition).toBe(true)
+    const updates = computeExecutionUpdates(plan, [h])
+    expect(updates.lotUpdates[0].lotIdsToRemove.sort()).toEqual(['l1', 'l2'])
+    expect(updates.lotUpdates[0].lotQuantityUpdates).toEqual([])
+  })
+
+  it('reduces (not removes) a lot only partially consumed by a partial sale', () => {
+    const h = holding({ id: 'h1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 100, unitCostEur: 5 }] })
+    const result = recommend({
+      amountNeededEur: 250,
+      holdings: [h],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { h1: 10 }, // 25 units sold out of 100
+    })
+    const plan = result.taxOptimizedPlan!
+    expect(plan.lineItems[0].isFullPosition).toBe(false)
+    const updates = computeExecutionUpdates(plan, [h])
+    expect(updates.lotUpdates[0].lotIdsToRemove).toEqual([])
+    expect(updates.lotUpdates[0].lotQuantityUpdates).toEqual([{ lotId: 'l1', newQuantity: 75 }])
+  })
+
+  it('removes the oldest lot entirely and reduces the next when a partial sale spans two lots', () => {
+    const h = holding({
+      id: 'h1',
+      lots: [
+        { id: 'old', acquiredAt: '2018-01-01', quantity: 10, unitCostEur: 5 },
+        { id: 'new', acquiredAt: '2022-01-01', quantity: 10, unitCostEur: 5 },
+      ],
+    })
+    const result = recommend({
+      amountNeededEur: 150,
+      holdings: [h],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { h1: 10 }, // 15 units needed: all 10 of "old" + 5 of "new"
+    })
+    const updates = computeExecutionUpdates(result.taxOptimizedPlan!, [h])
+    expect(updates.lotUpdates[0].lotIdsToRemove).toEqual(['old'])
+    expect(updates.lotUpdates[0].lotQuantityUpdates).toEqual([{ lotId: 'new', newQuantity: 5 }])
+  })
+
+  it('carries each institution\'s allowance-used delta and projected loss pots from the breakdown', () => {
+    const withLossPot: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 1000, usedEur: 0, lossPotEquitiesEur: 1000 }]
+    const h = holding({ id: 'h1', institutionId: 'inst1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }] }) // +400 gain
+    const result = recommend({
+      amountNeededEur: 500,
+      holdings: [h],
+      cashBalances: [],
+      institutions: withLossPot,
+      settings: defaultSettings(),
+      prices: { h1: 50 },
+    })
+    const plan = result.taxOptimizedPlan!
+    const updates = computeExecutionUpdates(plan, [h])
+    expect(updates.institutionUpdates).toEqual([
+      {
+        institutionId: 'inst1',
+        usedEurDelta: plan.institutionBreakdown[0].allowanceUsedEur,
+        newLossPotEquitiesEur: 600, // 1000 - 400 gain consumed
+        newLossPotGeneralEur: 0,
+      },
+    ])
+  })
+
+  it('does not duplicate an institution update when two line items share the same institution', () => {
+    const h1 = holding({ id: 'h1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 100 }] }) // loss
+    const h2 = holding({ id: 'h2', lots: [{ id: 'l2', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 200 }] }) // bigger loss
+    const result = recommend({
+      amountNeededEur: 1000,
+      holdings: [h1, h2],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { h1: 50, h2: 50 },
+    })
+    const plan = result.taxOptimizedPlan!
+    expect(plan.lineItems.length).toBeGreaterThan(1) // both holdings needed to cover the amount
+    const updates = computeExecutionUpdates(plan, [h1, h2])
+    const instIds = updates.institutionUpdates.map((u) => u.institutionId)
+    expect(new Set(instIds).size).toBe(instIds.length) // no duplicates
+  })
+
+  it('skips a line item gracefully if its holding is no longer present', () => {
+    const h = holding({ id: 'h1', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 10 }] })
+    const result = recommend({
+      amountNeededEur: 500,
+      holdings: [h],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { h1: 50 },
+    })
+    expect(() => computeExecutionUpdates(result.taxOptimizedPlan!, [])).not.toThrow()
+    expect(computeExecutionUpdates(result.taxOptimizedPlan!, []).lotUpdates).toEqual([])
   })
 })
