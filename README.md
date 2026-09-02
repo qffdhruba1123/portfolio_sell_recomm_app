@@ -75,12 +75,16 @@ Download the template button on that screen for a starting file.
 Yahoo Finance's chart/search endpoints are unofficial and send no
 `Access-Control-Allow-Origin` header (confirmed by inspecting the response
 headers directly, not assumed), so a browser can't call them cross-origin.
-This app routes those calls through a configurable proxy prefix
-(`corsproxy.io` by default) — if that proxy is down, paste a different one into
-**Settings → CORS proxy prefix**. Price lookups are cached (symbol resolution
-indefinitely, live quotes for ~45s) to stay under Yahoo's rate limits; a
-rate-limited or failed lookup falls back to the last-known price with a
-"stale" badge rather than failing the page.
+This app routes those calls through a proxy. The default, `auto`, tries a
+short built-in chain of public proxies in order (any one of them can and does
+go down or rate-limit independently — this was confirmed in production, not
+just anticipated) so one failing doesn't break the app. If all of them stop
+working for you, paste your own proxy URL into **Settings → CORS proxy
+prefix** — a self-hosted one (e.g. a few lines on Cloudflare Workers) is the
+most reliable option since it isn't shared. Price lookups are cached (symbol
+resolution indefinitely, live quotes for ~45s) to stay under Yahoo's rate
+limits; a rate-limited or failed lookup falls back to the last-known price
+with a "stale" badge rather than failing the page.
 
 ## Known simplifications (stated, not hidden)
 

@@ -1,4 +1,4 @@
-import { type AppState, emptyState } from '../types'
+import { AUTO_PROXY, type AppState, emptyState } from '../types'
 
 const STORAGE_KEY = 'portfolio-sell-recomm:state'
 const CURRENT_VERSION = 1
@@ -8,12 +8,21 @@ type Migration = (state: any) => any
 /** Keyed by the version a state is migrating FROM. Add entries when schemaVersion bumps. */
 const MIGRATIONS: Record<number, Migration> = {}
 
+/** The literal default before the "auto" proxy chain was introduced. */
+const LEGACY_DEFAULT_PROXY = 'https://corsproxy.io/?url='
+
 function migrate(raw: any): AppState {
   let state = raw
   while (typeof state.schemaVersion === 'number' && state.schemaVersion < CURRENT_VERSION) {
     const migration = MIGRATIONS[state.schemaVersion]
     if (!migration) break
     state = migration(state)
+  }
+  // One-time upgrade: a saved corsProxyPrefix that's still exactly the old
+  // single-proxy default is unmodified by the user, so it's safe to move it
+  // onto the more resilient "auto" chain. A genuinely customized value is left alone.
+  if (state.settings?.corsProxyPrefix === LEGACY_DEFAULT_PROXY) {
+    state = { ...state, settings: { ...state.settings, corsProxyPrefix: AUTO_PROXY } }
   }
   return state as AppState
 }

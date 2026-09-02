@@ -1,16 +1,26 @@
 import { loadPriceCache, loadSymbolCache, savePriceCacheEntry, saveSymbolCacheEntry } from './storage'
+import { AUTO_PROXY } from '../types'
 
 /**
  * Yahoo Finance's chart/search endpoints are unofficial, undocumented, and send no
  * Access-Control-Allow-Origin header — confirmed by direct inspection, not assumed.
  * A browser fetch() from any origin (localhost, GitHub Pages) is blocked by CORS,
- * so every call is routed through a configurable proxy prefix. If a proxy goes
- * down, changing PROXY_PREFIX (or the corsProxyPrefix setting) is a one-line fix.
+ * so every call is routed through a proxy. Free public proxies are individually
+ * unreliable (confirmed in production, not just anticipated) — the default
+ * "auto" setting tries a short built-in chain in order so one proxy going down
+ * doesn't break the app. A user-supplied custom prefix bypasses the chain
+ * entirely and is used exclusively, respecting their explicit choice.
  */
 const YAHOO_HOST = 'https://query1.finance.yahoo.com'
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 const PRICE_CACHE_TTL_MS = 45_000
 const EU_SUFFIXES = ['SG', 'DE', 'F', 'MU', 'MI']
+
+export const DEFAULT_PROXY_CHAIN = [
+  'https://corsproxy.io/?url=',
+  'https://api.allorigins.win/raw?url=',
+  'https://api.codetabs.com/v1/proxy?quest=',
+]
 
 export class YahooRateLimitError extends Error {
   constructor() {
@@ -24,12 +34,23 @@ function buildUrl(proxyPrefix: string, path: string): string {
 }
 
 async function fetchYahoo(proxyPrefix: string, path: string): Promise<any> {
-  const res = await fetch(buildUrl(proxyPrefix, path), {
-    headers: { 'User-Agent': USER_AGENT },
-  })
-  if (res.status === 429) throw new YahooRateLimitError()
-  if (!res.ok) throw new Error(`Yahoo Finance request failed (${res.status}).`)
-  return res.json()
+  const prefixes = proxyPrefix === AUTO_PROXY ? DEFAULT_PROXY_CHAIN : [proxyPrefix]
+  let lastStatus: number | null = null
+  let lastError: unknown = null
+
+  for (const prefix of prefixes) {
+    try {
+      const res = await fetch(buildUrl(prefix, path), { headers: { 'User-Agent': USER_AGENT } })
+      if (res.ok) return await res.json()
+      lastStatus = res.status
+    } catch (err) {
+      lastError = err
+    }
+  }
+
+  if (lastStatus === 429) throw new YahooRateLimitError()
+  if (lastError instanceof Error) throw lastError
+  throw new Error(`Yahoo Finance request failed${lastStatus ? ` (${lastStatus})` : ''} via every configured proxy.`)
 }
 
 export interface ChartMeta {

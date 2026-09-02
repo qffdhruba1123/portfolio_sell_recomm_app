@@ -144,10 +144,14 @@ export function SettingsView() {
           />
         </Field>
         <p className="mt-1 text-xs text-slate-500">
-          Yahoo Finance's endpoints don't send CORS headers, so price lookups route through this proxy — the target
-          URL is appended after this prefix. If it stops working, paste in a different proxy (e.g. your own, or
-          another public one). Price data is not personal data (it's requested by ticker only), but it does route
-          through a third-party service.
+          Yahoo Finance's endpoints don't send CORS headers, so price lookups route through a proxy. The default,{' '}
+          <code>auto</code>, tries a short built-in list of public proxies in order — public proxies are
+          individually unreliable, so if one is down or rate-limited, it falls through to the next rather than
+          failing outright. If all of them stop working for you (or you'd rather not depend on third-party
+          proxies at all), paste your own proxy URL here — a self-hosted one (e.g. a few lines on Cloudflare
+          Workers) is the most reliable option, since it isn't shared with other users. Any value other than{' '}
+          <code>auto</code> is used exclusively, replacing the built-in list. Price data is not personal data
+          (it's requested by ticker only), but it does route through a third-party service.
         </p>
       </Card>
     </div>

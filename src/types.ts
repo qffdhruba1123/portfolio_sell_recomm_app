@@ -72,6 +72,9 @@ export const SPARERPAUSCHBETRAG: Record<FilingStatus, number> = {
   married: 2000,
 }
 
+/** Sentinel for `Settings.corsProxyPrefix`: try a short built-in chain of public proxies rather than a single fixed one. Any other value is used as an exclusive, user-chosen override. */
+export const AUTO_PROXY = 'auto'
+
 export function defaultSettings(): Settings {
   return {
     filingStatus: 'single',
@@ -80,7 +83,7 @@ export function defaultSettings(): Settings {
     concentrationThresholdPct: 10,
     brokerFeeEur: 0,
     vorabpauschaleEur: 0,
-    corsProxyPrefix: 'https://corsproxy.io/?url=',
+    corsProxyPrefix: AUTO_PROXY,
   }
 }
 
