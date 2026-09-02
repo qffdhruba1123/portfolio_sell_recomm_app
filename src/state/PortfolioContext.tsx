@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { AppState, CashBalance, Holding, Institution, Lot, Settings } from '../types'
 import { emptyState } from '../types'
 import { exportStateJson, loadState, parseImportedStateJson, saveState } from '../lib/storage'
-import { buildDemoState, DEMO_PRICES_EUR, isDemoHoldingId } from '../lib/demoData'
+import { buildDemoState, isDemoHoldingId } from '../lib/demoData'
 import { getFxRate, resolveSymbol, YahooRateLimitError } from '../lib/yahoo'
 import { uid } from '../lib/format'
 import { buildCsvImportPlan, type CsvImportSummary, parseCsvRows } from '../lib/csv'
@@ -11,8 +11,29 @@ export interface PriceInfo {
   price: number
   currency: string
   stale: boolean
-  source: 'live' | 'demo' | 'error'
+  source: 'live' | 'error'
   error?: string
+}
+
+/** Fetches and converts to EUR for a given set of holdings — shared by the manual refresh, the demo, and the auto-fetch-on-load effect, so there's exactly one place that talks to Yahoo Finance. */
+async function fetchPricesForHoldings(holdings: Holding[], proxyPrefix: string): Promise<Record<string, PriceInfo>> {
+  const entries = await Promise.all(
+    holdings.map(async (h): Promise<[string, PriceInfo]> => {
+      try {
+        const resolved = await resolveSymbol(h.identifier, proxyPrefix)
+        let priceEur = resolved.price
+        if (resolved.currency !== 'EUR') {
+          const rate = await getFxRate(resolved.currency, 'EUR', proxyPrefix)
+          priceEur = resolved.price * rate
+        }
+        return [h.id, { price: priceEur, currency: 'EUR', stale: false, source: 'live' }]
+      } catch (err) {
+        const message = err instanceof YahooRateLimitError ? 'Rate-limited by Yahoo Finance — try again shortly.' : (err as Error).message
+        return [h.id, { price: NaN, currency: 'EUR', stale: true, source: 'error', error: message }]
+      }
+    }),
+  )
+  return Object.fromEntries(entries)
 }
 
 interface PortfolioContextValue {
@@ -60,52 +81,39 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
 
   const isDemo = useMemo(() => state.holdings.some((h) => isDemoHoldingId(h.id)), [state.holdings])
 
-  // Demo prices are baked-in constants, not fetched. Populate them for any demo
-  // holding that doesn't have a price yet — covers the initial load of a session
-  // that already had demo data saved (e.g. after a page reload), not just the
-  // moment "Load demo data" is clicked.
-  useEffect(() => {
-    const missing = state.holdings.filter((h) => isDemoHoldingId(h.id) && !(h.id in prices))
-    if (missing.length === 0) return
+  const mergePrices = useCallback((fetched: Record<string, PriceInfo>) => {
     setPrices((prev) => {
       const next = { ...prev }
-      for (const h of missing) next[h.id] = { price: DEMO_PRICES_EUR[h.id], currency: 'EUR', stale: false, source: 'demo' }
-      return next
-    })
-  }, [state.holdings, prices])
-
-  const refreshPrices = useCallback(async () => {
-    setPricesLoading(true)
-    const proxyPrefix = state.settings.corsProxyPrefix
-    const entries = await Promise.all(
-      state.holdings.map(async (h): Promise<[string, PriceInfo]> => {
-        if (isDemoHoldingId(h.id)) {
-          return [h.id, { price: DEMO_PRICES_EUR[h.id], currency: 'EUR', stale: false, source: 'demo' }]
-        }
-        try {
-          const resolved = await resolveSymbol(h.identifier, proxyPrefix)
-          let priceEur = resolved.price
-          if (resolved.currency !== 'EUR') {
-            const rate = await getFxRate(resolved.currency, 'EUR', proxyPrefix)
-            priceEur = resolved.price * rate
-          }
-          return [h.id, { price: priceEur, currency: 'EUR', stale: false, source: 'live' }]
-        } catch (err) {
-          const message = err instanceof YahooRateLimitError ? 'Rate-limited by Yahoo Finance — try again shortly.' : (err as Error).message
-          return [h.id, { price: NaN, currency: 'EUR', stale: true, source: 'error', error: message }]
-        }
-      }),
-    )
-    setPrices((prev) => {
-      const next = { ...prev }
-      for (const [id, info] of entries) {
+      for (const [id, info] of Object.entries(fetched)) {
         if (info.source === 'error' && prev[id] && prev[id].source !== 'error') continue // keep last-known-good on transient failure
         next[id] = info
       }
       return next
     })
+  }, [])
+
+  const refreshPrices = useCallback(async () => {
+    setPricesLoading(true)
+    const fetched = await fetchPricesForHoldings(state.holdings, state.settings.corsProxyPrefix)
+    mergePrices(fetched)
     setPricesLoading(false)
-  }, [state.holdings, state.settings.corsProxyPrefix])
+  }, [state.holdings, state.settings.corsProxyPrefix, mergePrices])
+
+  // Auto-fetch prices for any holding that doesn't have one yet - covers the
+  // initial load of a session with saved holdings (real or demo), and CSV/demo
+  // imports, without requiring a manual "Refresh prices" click first.
+  useEffect(() => {
+    const withoutPrice = state.holdings.filter((h) => !(h.id in prices))
+    if (withoutPrice.length === 0) return
+    setPricesLoading(true)
+    fetchPricesForHoldings(withoutPrice, state.settings.corsProxyPrefix).then((fetched) => {
+      mergePrices(fetched)
+      setPricesLoading(false)
+    })
+    // Deliberately keyed off `state.holdings` only - `prices` changes as a
+    // *result* of this effect, so including it would refetch in a loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.holdings])
 
   const addHolding = useCallback((h: Omit<Holding, 'id' | 'lots'>): string => {
     const id = uid()
@@ -180,14 +188,10 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const loadDemoData = useCallback(() => {
-    setState(buildDemoState())
-    // Demo prices are baked-in constants, not fetched — populate them immediately
-    // so the demo shows real numbers right away instead of an empty dashboard.
-    setPrices(
-      Object.fromEntries(
-        Object.entries(DEMO_PRICES_EUR).map(([id, price]) => [id, { price, currency: 'EUR', stale: false, source: 'demo' as const }]),
-      ),
-    )
+    setState((s) => buildDemoState(s.settings.corsProxyPrefix))
+    // Prices aren't set here - the auto-fetch-on-load effect fetches real
+    // live quotes for these real tickers automatically, same as any holding.
+    setPrices({})
   }, [])
 
   const clearAllData = useCallback(() => {

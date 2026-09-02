@@ -2,29 +2,24 @@ import type { AppState } from '../types'
 import { defaultSettings } from '../types'
 
 /**
- * Realistic-looking, entirely fictional portfolio so a first-time visitor can see a
- * recommendation immediately instead of staring at an empty app. None of these
- * tickers/ISINs need to resolve on Yahoo Finance — demo prices are baked in below
- * rather than fetched, so the demo works offline and never burns real API calls.
+ * Real, well-known securities (verified against Yahoo Finance's chart endpoint
+ * before picking these) so the demo fetches genuine live prices through the
+ * normal pipeline instead of faking them — the demo doubles as a smoke test
+ * that price lookups actually work. Lot cost bases are fictional and chosen to
+ * illustrate a gain and a loss scenario, not real purchase history.
  */
-export const DEMO_PRICES_EUR: Record<string, number> = {
-  'demo-mega-stock': 312.4,
-  'demo-small-stock': 48.9,
-  'demo-world-etf': 94.2,
-  'demo-bond-etf': 51.1,
-}
-
-export function buildDemoState(): AppState {
+/** `existingCorsProxyPrefix`, if given, is preserved rather than reset to default — a user's already-configured proxy shouldn't be silently clobbered by loading demo data. */
+export function buildDemoState(existingCorsProxyPrefix?: string): AppState {
   const institutions = [
     { id: 'demo-inst-main', label: 'Hauptbroker', submittedEur: 700, usedEur: 210 },
-    { id: 'demo-inst-espp', label: 'Auslands-ESPP-Depot', submittedEur: 300, usedEur: 0 },
+    { id: 'demo-inst-second', label: 'Zweitdepot', submittedEur: 300, usedEur: 0 },
   ]
 
   const holdings = [
     {
-      id: 'demo-mega-stock',
-      identifier: 'US0000000001',
-      displayName: 'Mega Tech Corp (demo)',
+      id: 'demo-aapl',
+      identifier: 'AAPL',
+      displayName: 'Apple Inc.',
       securityType: 'STOCK' as const,
       institutionId: 'demo-inst-main',
       lots: [
@@ -34,32 +29,32 @@ export function buildDemoState(): AppState {
       ],
     },
     {
-      id: 'demo-small-stock',
-      identifier: 'DE0000000002',
-      displayName: 'Regional Industrial AG (demo)',
+      id: 'demo-basf',
+      identifier: 'BAS.DE',
+      displayName: 'BASF SE',
       securityType: 'STOCK' as const,
       institutionId: 'demo-inst-main',
       lots: [{ id: 'l4', acquiredAt: '2021-09-01', quantity: 40, unitCostEur: 62.0, note: 'Down since purchase' }],
     },
     {
-      id: 'demo-world-etf',
-      identifier: 'IE0000000003',
-      displayName: 'World Equity ETF (demo)',
+      id: 'demo-vwce',
+      identifier: 'VWCE.DE',
+      displayName: 'Vanguard FTSE All-World UCITS ETF',
       securityType: 'ETF' as const,
       institutionId: 'demo-inst-main',
       lots: [
-        { id: 'l5', acquiredAt: '2018-01-15', quantity: 60, unitCostEur: 55.0 },
-        { id: 'l6', acquiredAt: '2022-04-01', quantity: 30, unitCostEur: 78.0 },
+        { id: 'l5', acquiredAt: '2019-08-01', quantity: 60, unitCostEur: 55.0 },
+        { id: 'l6', acquiredAt: '2022-04-01', quantity: 30, unitCostEur: 110.0 },
       ],
     },
     {
-      id: 'demo-bond-etf',
-      identifier: 'IE0000000004',
-      displayName: 'Euro Bond ETF (demo)',
+      id: 'demo-euna',
+      identifier: 'EUNA.DE',
+      displayName: 'iShares Core Global Aggregate Bond UCITS ETF',
       securityType: 'ETF' as const,
-      institutionId: 'demo-inst-espp',
-      teilfreistellungOverride: 0, // bond ETFs don't qualify for the equity-fund Teilfreistellung
-      lots: [{ id: 'l7', acquiredAt: '2020-05-01', quantity: 50, unitCostEur: 53.0, note: 'Bond fund, no Teilfreistellung' }],
+      institutionId: 'demo-inst-second',
+      teilfreistellungOverride: 0, // bond funds don't qualify for the equity-fund Teilfreistellung
+      lots: [{ id: 'l7', acquiredAt: '2020-05-01', quantity: 500, unitCostEur: 5.1, note: 'Bond fund, no Teilfreistellung' }],
     },
   ]
 
@@ -73,10 +68,14 @@ export function buildDemoState(): AppState {
     holdings,
     cashBalances,
     institutions,
-    settings: { ...defaultSettings(), filingStatus: 'single' },
+    settings: {
+      ...defaultSettings(),
+      filingStatus: 'single',
+      ...(existingCorsProxyPrefix ? { corsProxyPrefix: existingCorsProxyPrefix } : {}),
+    },
   }
 }
 
 export function isDemoHoldingId(id: string): boolean {
-  return id in DEMO_PRICES_EUR
+  return id.startsWith('demo-')
 }

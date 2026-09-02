@@ -37,9 +37,12 @@ Because of that:
 ## Try it with demo data
 
 The Dashboard and Settings both offer a **"Load demo data"** button that fills
-in a fictional multi-institution portfolio (stocks, ETFs, a bond fund, cash,
-Freistellungsaufträge) with prices baked in — no network calls — so you can see
-a real recommendation immediately. Clear it from Settings whenever you're ready
+in a multi-institution portfolio (Apple, BASF, a world-equity ETF, a bond fund,
+cash, Freistellungsaufträge) — real, well-known securities with fictional lot
+histories, so their current prices are fetched live through the same Yahoo
+Finance pipeline as your own holdings, rather than faked. It doubles as a quick
+check that price lookups are working in your setup. Clear it from Settings
+whenever you're ready
 to enter your own.
 
 ## Bulk-importing holdings via CSV
