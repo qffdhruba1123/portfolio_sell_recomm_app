@@ -72,8 +72,17 @@ export async function estimateHoldingDividendIncomeEur(holding: Holding, year: n
   return nativeAmount * rate
 }
 
+export interface IncomeSource {
+  kind: 'holding' | 'cash'
+  id: string
+  label: string
+  estimatedIncomeEur: number
+}
+
 export interface IncomeEstimate {
   incomeByInstitutionEur: Record<string, number>
+  /** Per-institution breakdown of which holding/cash balance contributed how much - so the aggregated number isn't a black box. */
+  sourcesByInstitution: Record<string, IncomeSource[]>
   /** Holdings whose dividend income couldn't be estimated (unresolvable symbol, etc.) - excluded rather than guessed. */
   unresolvedHoldingIds: string[]
 }
@@ -96,13 +105,19 @@ export async function estimateIncomeByInstitution(
   proxyPrefix: string,
 ): Promise<IncomeEstimate> {
   const incomeByInstitutionEur: Record<string, number> = {}
+  const sourcesByInstitution: Record<string, IncomeSource[]> = {}
   const unresolvedHoldingIds: string[] = []
+
+  const addSource = (institutionId: string, source: IncomeSource) => {
+    incomeByInstitutionEur[institutionId] = (incomeByInstitutionEur[institutionId] ?? 0) + source.estimatedIncomeEur
+    ;(sourcesByInstitution[institutionId] ??= []).push(source)
+  }
 
   await Promise.all(
     holdings.map(async (h) => {
       try {
         const amount = await estimateHoldingDividendIncomeEur(h, year, proxyPrefix)
-        incomeByInstitutionEur[h.institutionId] = (incomeByInstitutionEur[h.institutionId] ?? 0) + amount
+        addSource(h.institutionId, { kind: 'holding', id: h.id, label: h.displayName, estimatedIncomeEur: amount })
       } catch {
         unresolvedHoldingIds.push(h.id)
       }
@@ -111,8 +126,8 @@ export async function estimateIncomeByInstitution(
 
   for (const c of cashBalances) {
     const remainingInterest = estimateRemainingInterestEur(c.amountEur, c.interestRatePct ?? 0, c.interestPayoutFrequency ?? 'annually')
-    incomeByInstitutionEur[c.institutionId] = (incomeByInstitutionEur[c.institutionId] ?? 0) + remainingInterest
+    addSource(c.institutionId, { kind: 'cash', id: c.id, label: c.label, estimatedIncomeEur: remainingInterest })
   }
 
-  return { incomeByInstitutionEur, unresolvedHoldingIds }
+  return { incomeByInstitutionEur, sourcesByInstitution, unresolvedHoldingIds }
 }

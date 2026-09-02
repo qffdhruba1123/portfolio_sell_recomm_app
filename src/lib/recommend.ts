@@ -371,3 +371,72 @@ export function retirementReference(totalPortfolioValueEur: number): RetirementR
     totalPortfolioValueEur,
   }
 }
+
+function formatPlanText(plan: SalePlan | null, cashUsedEur: number): string {
+  if (!plan) return 'No sales needed — cash alone covers this request.'
+
+  const lines: string[] = []
+  if (cashUsedEur > 0) lines.push(`Cash used first: ${formatEur(cashUsedEur)}`)
+  for (const li of plan.lineItems) {
+    const qtyText = li.isFullPosition ? 'full position' : `${li.quantitySold.toFixed(2)} units`
+    lines.push(`- ${li.displayName} (${qtyText}): ${formatEur(li.grossProceedsEur)}`)
+    lines.push(`    ${li.rationale}`)
+  }
+  if (plan.shortfallEur > 0) {
+    lines.push(`Shortfall: holdings + cash don't cover the full request by ${formatEur(plan.shortfallEur)}.`)
+  }
+  lines.push('')
+  lines.push(`Gross proceeds from sales: ${formatEur(plan.grossProceedsFromSalesEur)}`)
+  lines.push(`Estimated tax: -${formatEur(plan.totalTaxEur)}`)
+  lines.push(`Broker fees: -${formatEur(plan.totalFeesEur)}`)
+  lines.push(`Estimated net proceeds: ${formatEur(plan.estimatedNetProceedsEur)}`)
+
+  if (plan.institutionBreakdown.length > 0) {
+    lines.push('')
+    lines.push('Per-institution tax breakdown:')
+    for (const b of plan.institutionBreakdown) {
+      lines.push(
+        `  ${b.institutionLabel}: stock pool ${formatEur(b.stockPoolEur)}, fund pool ${formatEur(b.fundPoolEur)}, allowance used ${formatEur(b.allowanceUsedEur)}, tax ${formatEur(b.taxEur)}`,
+      )
+    }
+  }
+  return lines.join('\n')
+}
+
+/**
+ * Plain-text summary of a recommendation, suitable for printing, emailing, or
+ * bringing to a Steuerberater — every recommendation here is something you
+ * act on manually elsewhere, so this is the "take it with you" artifact.
+ */
+export function buildRecommendationSummaryText(result: RecommendationResult, generatedAt: Date = new Date()): string {
+  const lines: string[] = []
+  lines.push('Portfolio Sell-Recommendation Advisor')
+  lines.push(`Generated ${generatedAt.toISOString().slice(0, 10)}`)
+  lines.push('')
+  lines.push(`Amount needed: ${formatEur(result.amountNeededEur)}`)
+  lines.push(`Cash available: ${formatEur(result.cashAvailableEur)} — used first: ${formatEur(result.cashUsedEur)}`)
+  lines.push(`Remaining to cover via sales: ${formatEur(result.remainingNeededAfterCashEur)}`)
+  lines.push('')
+
+  if (result.holdingsExcludedNoPrice.length > 0) {
+    lines.push(
+      `Manual review needed (no fetchable price, excluded): ${result.holdingsExcludedNoPrice.map((h) => h.displayName).join(', ')}`,
+    )
+    lines.push('')
+  }
+
+  if (result.comparisonCallout) {
+    lines.push(result.comparisonCallout)
+    lines.push('')
+  }
+
+  lines.push('=== Tax-optimized plan ===')
+  lines.push(formatPlanText(result.taxOptimizedPlan, result.cashUsedEur))
+  lines.push('')
+  lines.push('=== Risk-reduction plan ===')
+  lines.push(formatPlanText(result.riskReductionPlan, result.cashUsedEur))
+  lines.push('')
+  lines.push('Not financial or tax advice — educational, rules-based decision support only. Consult a Steuerberater before acting on this.')
+
+  return lines.join('\n')
+}

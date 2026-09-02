@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { usePortfolio } from '../state/PortfolioContext'
 import type { InterestPayoutFrequency } from '../types'
 import { checkAllowanceOverAllocation, remainingAllowance, suggestAllowanceSplit, suggestInstitutionToTrim } from '../lib/tax'
-import { estimateIncomeByInstitution } from '../lib/allowancePlanning'
+import { estimateIncomeByInstitution, type IncomeSource } from '../lib/allowancePlanning'
 import { formatEur } from '../lib/format'
 import { Badge, Button, Card, Field, NumberInput, Select, TextInput } from './ui'
 
@@ -37,7 +37,7 @@ function NewCashForm({ institutions, onAdd }: { institutions: { id: string; labe
         <TextInput value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Tagesgeld" />
       </Field>
       <Field label="Amount (EUR)">
-        <NumberInput value={amountEur} onChange={setAmountEur} step="any" />
+        <NumberInput value={amountEur} onChange={setAmountEur} min={0} step="any" />
       </Field>
       <Field label="Institution">
         <Select value={institutionId} onChange={(e) => setInstitutionId(e.target.value)}>
@@ -68,22 +68,29 @@ function AllowanceSplitSuggestionCard() {
   const previousYear = new Date().getFullYear() - 1
 
   const [suggestions, setSuggestions] = useState<ReturnType<typeof suggestAllowanceSplit> | null>(null)
+  const [sourcesByInstitution, setSourcesByInstitution] = useState<Record<string, IncomeSource[]>>({})
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [unresolvedCount, setUnresolvedCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  function toggleExpanded(institutionId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(institutionId)) next.delete(institutionId)
+      else next.add(institutionId)
+      return next
+    })
+  }
 
   async function handleEstimate() {
     setLoading(true)
     setError(null)
     try {
-      const { incomeByInstitutionEur, unresolvedHoldingIds } = await estimateIncomeByInstitution(
-        holdings,
-        cashBalances,
-        previousYear,
-        settings.corsProxyPrefix,
-      )
-      setSuggestions(suggestAllowanceSplit(institutions, incomeByInstitutionEur, settings.filingStatus))
-      setUnresolvedCount(unresolvedHoldingIds.length)
+      const estimate = await estimateIncomeByInstitution(holdings, cashBalances, previousYear, settings.corsProxyPrefix)
+      setSuggestions(suggestAllowanceSplit(institutions, estimate.incomeByInstitutionEur, settings.filingStatus))
+      setSourcesByInstitution(estimate.sourcesByInstitution)
+      setUnresolvedCount(estimate.unresolvedHoldingIds.length)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -129,22 +136,53 @@ function AllowanceSplitSuggestionCard() {
               {suggestions.map((s) => {
                 const institution = institutions.find((i) => i.id === s.institutionId)
                 if (!institution) return null
+                const sources = sourcesByInstitution[s.institutionId] ?? []
+                const isExpanded = expanded.has(s.institutionId)
                 return (
-                  <tr key={s.institutionId} className="border-t border-slate-100">
-                    <td className="py-1">{institution.label}</td>
-                    <td className="py-1 text-right">{formatEur(s.estimatedIncomeEur)}</td>
-                    <td className="py-1 text-right font-medium">{formatEur(s.suggestedSubmittedEur)}</td>
-                    <td className="py-1 text-right text-slate-500">{formatEur(institution.submittedEur)}</td>
-                    <td className="py-1 text-right">
-                      <button
-                        className="text-xs text-slate-700 hover:underline"
-                        disabled={institution.submittedEur === s.suggestedSubmittedEur}
-                        onClick={() => updateInstitution(institution.id, { submittedEur: s.suggestedSubmittedEur })}
-                      >
-                        apply
-                      </button>
-                    </td>
-                  </tr>
+                  <Fragment key={s.institutionId}>
+                    <tr className="border-t border-slate-100">
+                      <td className="py-1">
+                        <button
+                          className="text-left hover:underline"
+                          disabled={sources.length === 0}
+                          onClick={() => toggleExpanded(s.institutionId)}
+                          title={sources.length > 0 ? 'Show breakdown' : undefined}
+                        >
+                          {sources.length > 0 ? (isExpanded ? '▾ ' : '▸ ') : ''}
+                          {institution.label}
+                        </button>
+                      </td>
+                      <td className="py-1 text-right">{formatEur(s.estimatedIncomeEur)}</td>
+                      <td className="py-1 text-right font-medium">{formatEur(s.suggestedSubmittedEur)}</td>
+                      <td className="py-1 text-right text-slate-500">{formatEur(institution.submittedEur)}</td>
+                      <td className="py-1 text-right">
+                        <button
+                          className="text-xs text-slate-700 hover:underline"
+                          disabled={institution.submittedEur === s.suggestedSubmittedEur}
+                          onClick={() => updateInstitution(institution.id, { submittedEur: s.suggestedSubmittedEur })}
+                        >
+                          apply
+                        </button>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="bg-slate-50">
+                        <td colSpan={5} className="py-1 pl-6">
+                          <ul className="space-y-0.5 py-1 text-xs text-slate-600">
+                            {sources.map((source) => (
+                              <li key={`${source.kind}-${source.id}`} className="flex justify-between">
+                                <span>
+                                  {source.kind === 'holding' ? '📈 ' : '💶 '}
+                                  {source.label}
+                                </span>
+                                <span>{formatEur(source.estimatedIncomeEur)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 )
               })}
             </tbody>
@@ -233,6 +271,7 @@ export function AllowanceView() {
                       className="text-right"
                       value={i.submittedEur}
                       onChange={(v) => updateInstitution(i.id, { submittedEur: v })}
+                      min={0}
                       step="any"
                     />
                   </td>
@@ -241,6 +280,7 @@ export function AllowanceView() {
                       className="text-right"
                       value={i.usedEur}
                       onChange={(v) => updateInstitution(i.id, { usedEur: v })}
+                      min={0}
                       step="any"
                     />
                   </td>
@@ -250,6 +290,7 @@ export function AllowanceView() {
                       className="text-right"
                       value={i.brokerFeeEur ?? 0}
                       onChange={(v) => updateInstitution(i.id, { brokerFeeEur: v })}
+                      min={0}
                       step="any"
                     />
                   </td>
@@ -304,6 +345,7 @@ export function AllowanceView() {
                       className="text-right"
                       value={c.amountEur}
                       onChange={(v) => updateCashBalance(c.id, { amountEur: v })}
+                      min={0}
                       step="any"
                     />
                   </td>
@@ -312,6 +354,7 @@ export function AllowanceView() {
                       className="text-right"
                       value={c.interestRatePct ?? 0}
                       onChange={(v) => updateCashBalance(c.id, { interestRatePct: v })}
+                      min={0}
                       step="any"
                     />
                   </td>

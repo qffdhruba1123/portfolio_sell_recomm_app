@@ -158,6 +158,9 @@ function AddLotForm({
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
 
+  const today = new Date().toISOString().slice(0, 10)
+  const isFutureDate = acquiredAt > today
+
   async function handleFetchPrice() {
     setFetching(true)
     setFetchError(null)
@@ -173,19 +176,19 @@ function AddLotForm({
   return (
     <div className="mt-2 flex flex-wrap items-end gap-2">
       <Field label="Acquired">
-        <TextInput type="date" value={acquiredAt} onChange={(e) => setAcquiredAt(e.target.value)} />
+        <TextInput type="date" value={acquiredAt} max={today} onChange={(e) => setAcquiredAt(e.target.value)} />
       </Field>
       <Field label="Quantity">
-        <NumberInput value={quantity} onChange={setQuantity} step="any" />
+        <NumberInput value={quantity} onChange={setQuantity} min={0} step="any" />
       </Field>
       <Field label="Unit cost (EUR)">
-        <NumberInput value={unitCostEur} onChange={setUnitCostEur} step="any" />
+        <NumberInput value={unitCostEur} onChange={setUnitCostEur} min={0} step="any" />
       </Field>
-      <Button variant="secondary" disabled={!acquiredAt || fetching} onClick={handleFetchPrice}>
+      <Button variant="secondary" disabled={!acquiredAt || isFutureDate || fetching} onClick={handleFetchPrice}>
         {fetching ? 'Fetching…' : 'Fetch price for this date'}
       </Button>
       <Button
-        disabled={!acquiredAt || quantity <= 0}
+        disabled={!acquiredAt || isFutureDate || quantity <= 0}
         onClick={() => {
           onAdd(acquiredAt, quantity, unitCostEur)
           setAcquiredAt('')
@@ -196,6 +199,7 @@ function AddLotForm({
       >
         Add lot
       </Button>
+      {isFutureDate && <p className="w-full text-xs text-red-600">Acquired date can't be in the future.</p>}
       {fetchError && <p className="w-full text-xs text-red-600">{fetchError}</p>}
     </div>
   )

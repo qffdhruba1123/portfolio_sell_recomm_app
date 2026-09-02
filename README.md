@@ -142,6 +142,31 @@ Each institution also has its own **sell fee** (a flat EUR cost per sell
 order) instead of one app-wide number, since brokers charge very differently
 — some neobrokers charge under 1 EUR/trade, others charge more.
 
+The suggested split is never a black box either — clicking an institution's
+row expands a breakdown of exactly which holding or cash balance contributed
+how much to its estimate.
+
+## Taking a recommendation with you
+
+Every recommendation is something you act on manually elsewhere, so the
+Recommend view has two ways to take it with you:
+
+- **Print / save as PDF** uses the browser's print dialog, with the
+  navigation, footer, and input controls hidden so only the actual
+  recommendation prints.
+- **Copy summary as text** puts a plain-text version (amount, both plans,
+  every line item's rationale, totals, and the disclaimer) on your clipboard
+  — useful for pasting into an email to a Steuerberater or into your own notes.
+
+## Basic data-entry guardrails
+
+Numeric fields that represent real-world non-negative quantities (lot
+quantity, unit cost, cash amounts, allowance figures, fees, rates) clamp to
+zero if you type a negative number, and a lot's acquired date can't be set in
+the future. These catch fat-finger mistakes; they don't validate anything
+deeper (e.g. a suspiciously large quantity), consistent with the app trusting
+whatever you enter as ground truth.
+
 ## Known simplifications (stated, not hidden)
 
 - **Vorabpauschale** is entered manually in Settings and not included in the

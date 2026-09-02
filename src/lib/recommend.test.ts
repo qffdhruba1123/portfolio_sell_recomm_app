@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CashBalance, Holding, Institution } from '../types'
 import { defaultSettings } from '../types'
-import { concentrationPct, recommend, retirementReference, totalQuantity } from './recommend'
+import { buildRecommendationSummaryText, concentrationPct, recommend, retirementReference, totalQuantity } from './recommend'
 
 const institutions: Institution[] = [{ id: 'inst1', label: 'Broker A', submittedEur: 1000, usedEur: 0 }]
 
@@ -343,5 +343,60 @@ describe('retirementReference', () => {
     const ref = retirementReference(100_000)
     expect(ref.lowEur).toBeCloseTo(3000)
     expect(ref.highEur).toBeCloseTo(4000)
+  })
+})
+
+describe('buildRecommendationSummaryText', () => {
+  it('includes the requested amount, cash figures, and a no-sales-needed line when cash alone covers it', () => {
+    const result = recommend({
+      amountNeededEur: 500,
+      holdings: [],
+      cashBalances: [{ id: 'c1', label: 'Tagesgeld', amountEur: 5000, institutionId: 'inst1' }],
+      institutions,
+      settings: defaultSettings(),
+      prices: {},
+    })
+    const text = buildRecommendationSummaryText(result, new Date('2026-01-15T00:00:00Z'))
+    expect(text).toContain('500,00')
+    expect(text).toContain('Generated 2026-01-15')
+    expect(text).toContain('No sales needed')
+    expect(text).toContain('Not financial or tax advice')
+  })
+
+  it('includes each line item, its rationale, and the institution breakdown for an actual sale plan', () => {
+    const h = holding({
+      id: 'h1',
+      displayName: 'Test Holding',
+      lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 100 }], // loss
+    })
+    const result = recommend({
+      amountNeededEur: 500,
+      holdings: [h],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { h1: 50 },
+    })
+    const text = buildRecommendationSummaryText(result)
+    expect(text).toContain('Test Holding')
+    expect(text).toContain('Realizes a loss')
+    expect(text).toContain('Per-institution tax breakdown')
+    expect(text).toContain('Broker A') // institution label
+  })
+
+  it('mentions holdings excluded for having no fetchable price', () => {
+    const priced = holding({ id: 'priced', lots: [{ id: 'l1', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 5 }] })
+    const unpriced = holding({ id: 'unpriced', displayName: 'No Price Co', lots: [{ id: 'l2', acquiredAt: '2020-01-01', quantity: 10, unitCostEur: 5 }] })
+    const result = recommend({
+      amountNeededEur: 50,
+      holdings: [priced, unpriced],
+      cashBalances: [],
+      institutions,
+      settings: defaultSettings(),
+      prices: { priced: 10 },
+    })
+    const text = buildRecommendationSummaryText(result)
+    expect(text).toContain('No Price Co')
+    expect(text).toContain('Manual review needed')
   })
 })

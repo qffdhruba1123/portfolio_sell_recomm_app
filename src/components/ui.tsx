@@ -38,13 +38,18 @@ export function NumberInput(
     onChange: (value: number) => void
   },
 ) {
-  const { value, onChange, ...rest } = props
+  const { value, onChange, min, ...rest } = props
+  const minNum = typeof min === 'number' ? min : min != null ? Number(min) : undefined
   return (
     <TextInput
       {...rest}
+      min={min}
       type="number"
       value={Number.isFinite(value) ? value : ''}
-      onChange={(e) => onChange(e.target.value === '' ? 0 : Number(e.target.value))}
+      onChange={(e) => {
+        const raw = e.target.value === '' ? 0 : Number(e.target.value)
+        onChange(minNum != null && Number.isFinite(minNum) ? Math.max(raw, minNum) : raw)
+      }}
     />
   )
 }

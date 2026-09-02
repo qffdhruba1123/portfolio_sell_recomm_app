@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { usePortfolio } from '../state/PortfolioContext'
-import { recommend, retirementReference, totalHoldingsValueEur, type SalePlan } from '../lib/recommend'
+import { buildRecommendationSummaryText, recommend, retirementReference, totalHoldingsValueEur, type SalePlan } from '../lib/recommend'
 import { formatEur } from '../lib/format'
 import { Badge, Button, Card, NumberInput } from './ui'
 
@@ -166,9 +166,21 @@ export function RecommendView() {
   )
   const hasSalePlan = (result.taxOptimizedPlan?.lineItems.length ?? 0) > 0 || (result.riskReductionPlan?.lineItems.length ?? 0) > 0
 
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
+
+  async function handleCopySummary() {
+    try {
+      await navigator.clipboard.writeText(buildRecommendationSummaryText(result))
+      setCopyStatus('copied')
+      setTimeout(() => setCopyStatus('idle'), 2000)
+    } catch {
+      setCopyStatus('error')
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="print:hidden">
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex gap-2">
             <Button variant={mode === 'cash' ? 'primary' : 'secondary'} onClick={() => setMode('cash')}>
@@ -183,16 +195,27 @@ export function RecommendView() {
             <NumberInput value={amount} onChange={setAmount} min={0} step={100} />
           </div>
         </div>
+      </Card>
 
-        {mode === 'retirement' && (
-          <p className="mt-3 rounded-md bg-slate-50 p-2 text-xs text-slate-600">
+      {mode === 'retirement' && (
+        <Card>
+          <p className="text-xs text-slate-600">
             Context only, not a limit: a commonly-cited sustainable withdrawal rate (Bengen "4% rule" / Trinity Study
             lineage) suggests ~3–4% of your {formatEur(totalPortfolioValueEur)} portfolio per year, i.e. roughly{' '}
             <strong>{formatEur(retirementRef.lowEur)}–{formatEur(retirementRef.highEur)}</strong>. Enter whatever
             amount you actually need above — this app never caps it.
           </p>
-        )}
-      </Card>
+        </Card>
+      )}
+
+      <div className="flex flex-wrap gap-2 print:hidden">
+        <Button variant="secondary" onClick={() => window.print()}>
+          Print / save as PDF
+        </Button>
+        <Button variant="secondary" onClick={handleCopySummary}>
+          {copyStatus === 'copied' ? 'Copied!' : copyStatus === 'error' ? 'Copy failed — try again' : 'Copy summary as text'}
+        </Button>
+      </div>
 
       {result.holdingsExcludedNoPrice.length > 0 && (
         <Card className="border-amber-200 bg-amber-50">

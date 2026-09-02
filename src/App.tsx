@@ -30,7 +30,7 @@ function AppShell() {
       <header className="border-b border-slate-200 bg-white px-4 py-3">
         <h1 className="text-lg font-semibold text-slate-900">Portfolio Sell-Recommendation Advisor</h1>
       </header>
-      <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-4">
+      <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-4 print:hidden">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -51,7 +51,7 @@ function AppShell() {
         {tab === 'allowance' && <AllowanceView />}
         {tab === 'settings' && <SettingsView />}
       </main>
-      <footer className="mx-auto max-w-5xl px-4 py-6 text-center text-xs text-slate-400">
+      <footer className="mx-auto max-w-5xl px-4 py-6 text-center text-xs text-slate-400 print:hidden">
         Built and maintained for free.{' '}
         <a href="https://buymeacoffee.com/qffdhruba" target="_blank" rel="noopener" className="underline hover:text-slate-600">
           ☕ Buy me a coffee

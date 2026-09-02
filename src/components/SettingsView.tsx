@@ -128,6 +128,7 @@ export function SettingsView() {
                 disabled={!settings.churchTaxEnabled}
                 value={settings.churchTaxRate * 100}
                 onChange={(v) => updateSettings({ churchTaxRate: v / 100 })}
+                min={0}
                 step={0.5}
               />
               <span className="text-xs text-slate-500">% (simplified flat add-on, not the real withholding formula)</span>
@@ -137,6 +138,7 @@ export function SettingsView() {
             <NumberInput
               value={settings.concentrationThresholdPct}
               onChange={(v) => updateSettings({ concentrationThresholdPct: v })}
+              min={0}
               step={1}
             />
           </Field>
@@ -144,6 +146,7 @@ export function SettingsView() {
             <NumberInput
               value={settings.vorabpauschaleEur}
               onChange={(v) => updateSettings({ vorabpauschaleEur: v })}
+              min={0}
               step="any"
             />
           </Field>
